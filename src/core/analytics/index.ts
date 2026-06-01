@@ -8,3 +8,4 @@ export * from "@/core/analytics/loadProfile";
 export * from "@/core/analytics/solar";
 export * from "@/core/analytics/operations";
 export * from "@/core/analytics/emissions";
+export * from "@/core/analytics/dataWindow";

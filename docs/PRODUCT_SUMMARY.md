@@ -63,8 +63,11 @@ investigate. (Headline feature.)
 RLS-respecting DB views.
 
 **6. Client report** (print-optimised web page → Save-as-PDF; the read-only client view).
-Led by a **consolidated savings register** (measure · $/yr · indicative capex · payback ·
-confidence), then:
+Up front it states the **data window and a seasonality caveat** (annualised figures are
+flagged when the window is a partial year, and **confidence is auto-downgraded** for partial
+data or a high estimated/substituted share). Led by a **consolidated savings register**
+(measure · $/yr · indicative capex · payback · confidence) with an implementation sequence
+(0–30/30–60/60–90) and a measurement-and-verification note, then:
 - Usage profile (consumption, peak demand, load factor, power factor at peak, data quality,
   load-profile chart, energy intensity kWh/m² when floor area is set)
 - Operational findings (the zero-capex "free wins")
@@ -75,10 +78,17 @@ confidence), then:
 - **Retail contract benchmark** — futures-derived; flags above-market rates + re-tender $
 - **Demand management** — top-N peak intervals + whether the peak is inside the charged window
 - **Power factor** — correction business case, gated to kVA tariffs (states "no benefit" on kW)
-- **Solar** — sized by sweeping candidate sizes and picking best payback (self-consumption is
-  an output), with degradation, lifetime saving, $/yr saving, payback, CO₂
-- **Emissions** — location- and market-based Scope 2 on the NGA factor; solar offset in the
-  same units
+- **Demand management** — top-N peaks + in/out-of-window finding + theoretical monthly-shave
+  headroom + intervention ladder (operational → load-shift → peak-shave); avoids
+  double-counting kVA with power factor
+- **Power factor** — correction business case, gated to kVA tariffs, target 0.95 (note ~0.98),
+  subject to a power-quality study; uses PF at the demand-setting interval
+- **Solar** — reports **both** the min-payback size and the max-lifetime-value size (degradation
+  + inverter replacement), self-consumption an output, $/yr, payback, CO₂
+- **Operational findings** — only the **avoidable** base load is dollarised (observed minus an
+  assumed essential floor), valued at the off-peak rate, flagged investigate
+- **Emissions** — location- and market-based Scope 2 + **Scope 3** (T&D + upstream) on NGA
+  factors; method/source stated per number; residual-emissions ladder; numbers not claims
 
 ## Operator inputs (kept current per review)
 - **ASX QLD futures price** ($/MWh) — entered on the Portfolio page; the retail benchmark is a

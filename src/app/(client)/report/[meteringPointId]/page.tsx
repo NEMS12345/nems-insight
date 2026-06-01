@@ -19,11 +19,14 @@ import {
   dailyConsumption,
   formatMinuteOfDay,
   analyseOperations,
+  analyseDataWindow,
   topDemandIntervals,
   recommendSolar,
   scope2,
+  scope3Electricity,
   emissionsAvoided,
   ngaFactor,
+  ngaScope3Factor,
   NGA_FACTOR_YEAR,
 } from "@/core/analytics";
 import {
@@ -35,16 +38,17 @@ import {
   reconcile,
   getTariff,
   marginalEnergyRatePerKwh,
-  benchmarkRetailEnergyRate,
+  benchmarkRetailEnergyBand,
   compareRetailRate,
   powerFactorCorrectionCase,
+  demandShaveSaving,
   inWindow,
   classifyPeriod,
   ENERGEX_7200,
   ENERGEX_7400,
   type LossFactors,
 } from "@/core/tariff";
-import { sortSavings, totalAnnualSaving, type SavingsItem } from "@/core/report";
+import { sortSavings, totalAnnualSaving, adjustConfidence, type SavingsItem } from "@/core/report";
 import { BarChart } from "@/components/BarChart";
 import { PrintButton } from "@/components/PrintButton";
 import { moneyLabel, energyLabel } from "@/lib/format";
@@ -114,9 +118,17 @@ export default async function ClientReport({
   const topPeaks = topDemandIntervals(readings, 5);
   const modelled = computeFullCost(readings, tariff, retailPlan, losses);
 
-  // Annualise from the data period (handles 1-month vs 1-year data).
-  const annualF = modelled.days > 0 ? 365 / modelled.days : 1;
+  // Data window & seasonality — annualised figures are caveated when the window is partial.
+  const win = analyseDataWindow(readings);
+  const annualF = win.annualisationFactor;
   const annualKwh = summary.importKwh * annualF;
+  const conf = (base: "high" | "medium" | "low") =>
+    adjustConfidence(base, {
+      seasonalCaveat: win.seasonalCaveat,
+      estimatedFraction: summary.estimatedFraction,
+    });
+  const mlf = losses.mlf ?? 1;
+  const dlf = losses.dlf ?? 1;
 
   // Tariff comparison.
   const ranked = compareTariffs(readings, ALL_TARIFFS, losses);
@@ -164,18 +176,29 @@ export default async function ClientReport({
       .reduce((sum, l) => sum + l.amount, 0);
     return summary.importKwh > 0 ? variable / summary.importKwh : 0;
   })();
-  const benchmarkRate = marketPrice
-    ? benchmarkRetailEnergyRate(marketPrice.futuresPerMwh, {
-        lossUplift: (losses.mlf ?? 1) * (losses.dlf ?? 1),
-      })
+  const benchmarkBand = marketPrice
+    ? benchmarkRetailEnergyBand(marketPrice.futuresPerMwh, { lossUplift: mlf * dlf })
     : null;
-  const retail =
-    benchmarkRate !== null
-      ? compareRetailRate(actualRetailVariableRate, benchmarkRate, annualKwh)
-      : null;
+  const retail = benchmarkBand
+    ? compareRetailRate(actualRetailVariableRate, benchmarkBand.mid, annualKwh)
+    : null;
 
-  // Emissions (annualised; NGA location-based, operator factor or default).
+  // Demand: theoretical in-window shave (presented as a finding, not added to the register
+  // total, to avoid double-counting kVA with power-factor correction below).
+  const demandShave = demandShaveSaving(readings, tariff);
+
+  // Avoidable standing load valued conservatively at the off-peak rate.
+  const offpeakAvoidedRate =
+    marginalEnergyRatePerKwh(tariff, "offpeak", losses) +
+    retailPlan.offpeakRatePerKwh * mlf * dlf +
+    retailPlan.environmentalPerKwh * dlf +
+    retailPlan.marketPerKwh * dlf;
+  const avoidableSaving =
+    ops.avoidableBaseLoadKw * (ops.outOfHoursTimeFraction * 8760) * offpeakAvoidedRate;
+
+  // Emissions (annualised; NGA location-based + Scope 3 electricity).
   const emissions = scope2(annualKwh, factor);
+  const scope3 = scope3Electricity(annualKwh, ngaScope3Factor(region));
   const solarCo2 = emissionsAvoided(solar.annualGenerationKwh, factor);
 
   // Reconciliation.
@@ -195,14 +218,24 @@ export default async function ClientReport({
 
   // --- Savings register ---
   const register: SavingsItem[] = [];
-  if (retail?.aboveBenchmark && benchmarkRate !== null) {
+  if (avoidableSaving > 0) {
+    register.push({
+      measure: "Reduce avoidable out-of-hours / standing load",
+      annualSavingAud: avoidableSaving,
+      indicativeCapexAud: 0,
+      paybackYears: 0,
+      confidence: conf("medium"),
+      note: `~${ops.avoidableBaseLoadKw.toFixed(0)} kW avoidable at off-peak; operational (controls/scheduling). Investigate — site confirmation needed.`,
+    });
+  }
+  if (retail?.aboveBenchmark && benchmarkBand) {
     register.push({
       measure: "Re-tender retail energy contract",
       annualSavingAud: retail.annualOpportunity,
       indicativeCapexAud: 0,
       paybackYears: 0,
-      confidence: "low",
-      note: `Actual ${(actualRetailVariableRate * 100).toFixed(2)}¢ vs benchmark ${(benchmarkRate * 100).toFixed(2)}¢ /kWh (indicative).`,
+      confidence: conf("medium"),
+      note: `Actual ${(actualRetailVariableRate * 100).toFixed(2)}¢ vs benchmark ${(benchmarkBand.mid * 100).toFixed(2)}¢ /kWh; test in market.`,
     });
   }
   if (switchWorthwhile) {
@@ -211,8 +244,8 @@ export default async function ClientReport({
       annualSavingAud: tariffSavingAnnual,
       indicativeCapexAud: 0,
       paybackYears: 0,
-      confidence: "low",
-      note: "Subject to connection/voltage eligibility and DNSP approval.",
+      confidence: conf("medium"),
+      note: "Subject to connection/voltage eligibility and DNSP approval — pursue with retailer/DNSP.",
     });
   }
   if (pfCase.applicable) {
@@ -222,8 +255,8 @@ export default async function ClientReport({
       annualSavingAud: pfCase.annualSavingAud,
       indicativeCapexAud: capex,
       paybackYears: pfCase.annualSavingAud > 0 ? capex / pfCase.annualSavingAud : null,
-      confidence: "medium",
-      note: `${pfCase.capacitorKvar.toFixed(0)} kVAr to reach PF ${TARGET_PF}; final sizing needs an electrical assessment.`,
+      confidence: conf("medium"),
+      note: `${pfCase.capacitorKvar.toFixed(0)} kVAr to reach PF ${TARGET_PF}; subject to a power-quality study (harmonics may require detuned banks).`,
     });
   }
   if (solar.recommendedKwp > 0 && solar.annualSavingAud > 0) {
@@ -232,18 +265,8 @@ export default async function ClientReport({
       annualSavingAud: solar.annualSavingAud,
       indicativeCapexAud: solar.recommendedKwp * solar.assumptions.installCostPerWatt * 1000,
       paybackYears: solar.simplePaybackYears,
-      confidence: "medium",
-      note: `${pct(solar.selfConsumptionPct)} self-consumed; indicative, roof/space assumed.`,
-    });
-  }
-  if (ops.outOfHoursFraction > 0.4 || ops.weekendFractionOfWeekday > 0.6) {
-    register.push({
-      measure: "Reduce out-of-hours / standing load",
-      annualSavingAud: ops.baseLoadKw * 8760 * 0.1 * avoidedRate, // 10% of standing load, indicative
-      indicativeCapexAud: 0,
-      paybackYears: 0,
-      confidence: "low",
-      note: "Operational (controls/scheduling); indicative — requires a site review.",
+      confidence: conf("medium"),
+      note: `${pct(solar.selfConsumptionPct)} self-consumed; roof/space assumed.`,
     });
   }
   const rankedRegister = sortSavings(register);
@@ -269,14 +292,27 @@ export default async function ClientReport({
         </p>
       )}
 
+      {win.seasonalCaveat && (
+        <p className="mt-4 rounded border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+          ⚠ Data covers {win.days} days ({win.firstDate} to {win.lastDate}), not a full seasonal
+          year{win.hasSummer && !win.hasWinter ? " (summer only)" : win.hasWinter && !win.hasSummer ? " (winter only)" : ""}.
+          Annualised figures are indicative and confidence is downgraded accordingly.
+        </p>
+      )}
+
       <div className="mt-6 flex flex-col gap-6">
         <Section title="Summary">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <Metric label="Annual cost (modelled)" value={moneyLabel(modelled.total * annualF)} />
+            <Metric label="Annual cost (modelled)" value={moneyLabel(modelled.total * annualF)} sub={win.spansFullYear ? undefined : "annualised — partial year"} />
             <Metric label="Annual consumption" value={energyLabel(annualKwh)} />
             <Metric label="Peak demand" value={kw(peak.kw)} />
             <Metric label="Identified savings" value={`${moneyLabel(totalSaving)}/yr`} />
           </div>
+          <p className="mt-2 text-[11px] text-black/50">
+            Data window: {win.firstDate} to {win.lastDate} ({win.days} days, {win.months.length} months).
+            Suggested sequence: action low/no-capex operational and tariff/retail items first (0–30 days),
+            then power factor and demand (30–60), then solar (60–90). Re-baseline after implementation to verify (M&V).
+          </p>
           {rankedRegister.length > 0 && (
             <table className="mt-4 w-full text-sm">
               <thead className="text-left text-[11px] uppercase text-black/40">
@@ -319,12 +355,15 @@ export default async function ClientReport({
         <Section title="Operational findings">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <Metric label="Overnight base load" value={kw(ops.baseLoadKw)} sub={`${pct(ops.baseLoadFractionOfPeak)} of peak`} />
+            <Metric label="Avoidable (est.)" value={kw(ops.avoidableBaseLoadKw)} sub={`~${moneyLabel(avoidableSaving)}/yr at off-peak`} />
             <Metric label="Out-of-hours energy" value={pct(ops.outOfHoursFraction)} />
-            <Metric label="Weekend vs weekday" value={pct(ops.weekendFractionOfWeekday)} sub="daily use" />
             <Metric label="Base-load trend" value={ops.baseLoadCreep === null ? "—" : pct(ops.baseLoadCreep)} sub="first→last month" />
           </div>
           <p className="mt-2 text-xs text-black/60">
-            Standing/overnight load and weekend running are usually the cheapest savings (controls and scheduling, no capital).
+            Only the <em>avoidable</em> portion is dollarised — observed overnight load minus an assumed
+            essential floor (refrigeration/servers/security). Conservative and to be confirmed on site;
+            valued at the off-peak rate. Standing load and weekend running are usually the cheapest savings
+            (controls/scheduling, no capital). Weekend vs weekday daily use: {pct(ops.weekendFractionOfWeekday)}.
           </p>
         </Section>
 
@@ -382,18 +421,20 @@ export default async function ClientReport({
         </Section>
 
         <Section title="Retail contract benchmark">
-          {marketPrice && retail && benchmarkRate !== null ? (
+          {marketPrice && retail && benchmarkBand ? (
             <>
               <p className="text-sm text-black/80">
                 Your variable retail rate is about <strong>{(actualRetailVariableRate * 100).toFixed(2)}¢/kWh</strong> vs an indicative
-                market benchmark of <strong>{(benchmarkRate * 100).toFixed(2)}¢/kWh</strong>
+                market benchmark band of <strong>{(benchmarkBand.low * 100).toFixed(2)}–{(benchmarkBand.high * 100).toFixed(2)}¢/kWh</strong>
                 {retail.aboveBenchmark
-                  ? <> — re-tendering could be worth ~<strong>{moneyLabel(retail.annualOpportunity)}/yr</strong>.</>
+                  ? <> — re-tendering could be worth ~<strong>{moneyLabel(retail.annualOpportunity)}/yr</strong> (test in market).</>
                   : <> — broadly competitive.</>}
               </p>
               <p className="mt-1 text-[11px] text-black/50">
-                Benchmark built from the ASX {region} futures price of ${marketPrice.futuresPerMwh.toFixed(2)}/MWh
-                (captured {marketPrice.capturedOn}) plus margin, environmental, market fees and losses. Indicative only.
+                Contestable retail component only (network/metering sit in the tariff check). Built from the ASX {region}
+                futures price ${marketPrice.futuresPerMwh.toFixed(2)}/MWh (captured {marketPrice.capturedOn}) grossed up for
+                losses (MLF×DLF) and load shape, plus LGC/STC environmental, AEMO market fees and retailer margin. A band,
+                not a quote — a real tender depends on credit and term.
               </p>
             </>
           ) : (
@@ -423,14 +464,24 @@ export default async function ClientReport({
               ))}
             </tbody>
           </table>
+          <p className="mt-2 text-xs text-black/60">
+            Theoretical headroom from clipping each month&apos;s top in-window interval to the next-highest:
+            ~<strong>{moneyLabel(demandShave.theoreticalAnnualSaving)}/yr</strong> ({demandShave.unit}). This is the
+            theoretical ceiling, not the achievable saving — that needs site knowledge of what load is movable.
+            Interventions, cheapest first: operational (stagger start-ups, BMS scheduling, demand limiting), then
+            load-shifting (move flexible load out of the window), then peak-shaving (battery/genset).
+            {kvaBilled ? " On this kVA tariff, power-factor correction (below) is itself a demand lever — not additive to it." : ""}
+          </p>
         </Section>
 
         <Section title="Power factor">
           {pfCase.applicable ? (
             <p className="text-sm text-black/80">
-              Power factor at the demand peak is <strong>{pfPeak.powerFactor?.toFixed(2)}</strong>. Correcting to {TARGET_PF}
-              would cut chargeable demand from {pfCase.peakKva.toFixed(0)} to {pfCase.correctedKva.toFixed(0)} kVA — about{" "}
-              <strong>{moneyLabel(pfCase.annualSavingAud)}/yr</strong> (≈{pfCase.capacitorKvar.toFixed(0)} kVAr of correction).
+              Power factor at the demand-setting interval is <strong>{pfPeak.powerFactor?.toFixed(2)}</strong>. Correcting to a
+              target of {TARGET_PF} (up to ~0.98 with automatic correction; unity isn&apos;t worth chasing) would cut chargeable
+              demand from {pfCase.peakKva.toFixed(0)} to {pfCase.correctedKva.toFixed(0)} kVA — about{" "}
+              <strong>{moneyLabel(pfCase.annualSavingAud)}/yr</strong> (≈{pfCase.capacitorKvar.toFixed(0)} kVAr). Indicative,
+              subject to a power-quality study; harmonics may require detuned/filtered banks, which raise the cost.
             </p>
           ) : (
             <p className="text-sm text-black/80">
@@ -441,26 +492,32 @@ export default async function ClientReport({
 
         <Section title="Solar opportunity">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <Metric label="Recommended size" value={`${solar.recommendedKwp} kWp`} sub="best payback, low export" />
-            <Metric label="Annual generation" value={energyLabel(solar.annualGenerationKwh)} sub={`${pct(solar.selfConsumptionPct)} self-consumed`} />
-            <Metric label="Est. annual saving" value={moneyLabel(solar.annualSavingAud)} sub={`${moneyLabel(solar.lifetimeSavingAud)} over ${solar.assumptions.systemLifeYears}y`} />
-            <Metric label="Simple payback" value={solar.simplePaybackYears ? `${solar.simplePaybackYears.toFixed(1)} yrs` : "—"} sub={`~${solarCo2.toFixed(0)} t CO₂/yr avoided`} />
+            <Metric label="Best payback" value={`${solar.recommendedKwp} kWp`} sub={solar.simplePaybackYears ? `${solar.simplePaybackYears.toFixed(1)}y · ${pct(solar.selfConsumptionPct)} self-used` : "low export"} />
+            <Metric label="Best lifetime value" value={`${solar.maxValue.kwp} kWp`} sub={`${moneyLabel(solar.maxValue.lifetimeSavingAud)} over ${solar.assumptions.systemLifeYears}y`} />
+            <Metric label="Annual saving" value={moneyLabel(solar.annualSavingAud)} sub={`max-value: ${moneyLabel(solar.maxValue.annualSavingAud)}/yr`} />
+            <Metric label="CO₂ avoided" value={`~${solarCo2.toFixed(0)} t/yr`} sub={`${energyLabel(solar.annualGenerationKwh)} generated`} />
           </div>
           <p className="mt-3 text-xs text-black/50">
-            Indicative only. {solar.assumptions.yieldKwhPerKwpYear} kWh/kWp/yr (SE QLD), ~${solar.assumptions.installCostPerWatt.toFixed(2)}/W,
-            {(solar.assumptions.degradationPerYear * 100).toFixed(1)}%/yr degradation, self-consumed kWh valued at {moneyLabel(avoidedRate)}/kWh.
+            Two sizes: the min-payback system (cash-constrained) and the max-lifetime-value system (asset owner) —
+            choose on capital appetite. Indicative only. {solar.assumptions.yieldKwhPerKwpYear} kWh/kWp/yr (SE QLD),
+            ~${solar.assumptions.installCostPerWatt.toFixed(2)}/W, {(solar.assumptions.degradationPerYear * 100).toFixed(1)}%/yr
+            degradation, inverter replacement ~yr {solar.assumptions.inverterReplacementYear}, self-consumed kWh valued at
+            {" "}{moneyLabel(avoidedRate)}/kWh. Roof/space and existing on-site generation to be confirmed.
           </p>
         </Section>
 
-        <Section title="Emissions (Scope 2)">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-            <Metric label="Location-based" value={`${emissions.locationTonnes.toFixed(0)} t CO₂-e/yr`} />
-            <Metric label="Solar offset" value={`${solarCo2.toFixed(0)} t CO₂-e/yr`} />
-            <Metric label="NGA factor" value={`${factor} t/MWh`} sub={factorYear} />
+        <Section title="Electricity emissions">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <Metric label="Scope 2 (location)" value={`${emissions.locationTonnes.toFixed(0)} t/yr`} sub={`${factor} t/MWh · ${factorYear}`} />
+            <Metric label="Scope 2 (market)" value={`${emissions.marketTonnes.toFixed(0)} t/yr`} sub="GreenPower/LGCs/PPA lower this" />
+            <Metric label="Scope 3 (T&D + upstream)" value={`${scope3.toFixed(0)} t/yr`} sub={`${ngaScope3Factor(region)} t/MWh`} />
+            <Metric label="Solar offset" value={`${solarCo2.toFixed(0)} t/yr`} />
           </div>
           <p className="mt-2 text-[11px] text-black/50">
-            Location-based Scope 2 using the NGA state factor. Market-based would be lower with GreenPower/LGCs/PPA.
-            Confirm the current NGA factor before issuing.
+            Basis: {energyLabel(annualKwh)}/yr, NGA factors ({factorYear}). Electricity Scope 2 (location and market-based)
+            and Scope 3 only — other scopes are out of scope for an energy review. Residual-emissions ladder: efficiency →
+            on-site solar → PPA/GreenPower → offsets (last resort). Figures are method-stated estimates, not a
+            &ldquo;carbon-neutral&rdquo; claim; confirm the current NGA factor before issuing.
           </p>
         </Section>
 

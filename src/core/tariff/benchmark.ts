@@ -36,6 +36,25 @@ export function benchmarkRetailEnergyRate(
   return wholesalePerKwh + x.retailMarginPerKwh + x.environmentalPerKwh + x.marketFeesPerKwh;
 }
 
+export interface BenchmarkBand {
+  low: number;
+  mid: number;
+  high: number;
+}
+
+/**
+ * Forward prices move and a real tender depends on credit/term, so present the benchmark as
+ * a BAND, not a point. `bandPct` is the ± uncertainty applied to the mid estimate.
+ */
+export function benchmarkRetailEnergyBand(
+  futuresPerMwh: number,
+  a: Partial<RetailBenchmarkAssumptions> = {},
+  bandPct = 0.1,
+): BenchmarkBand {
+  const mid = benchmarkRetailEnergyRate(futuresPerMwh, a);
+  return { low: mid * (1 - bandPct), mid, high: mid * (1 + bandPct) };
+}
+
 export interface RetailComparison {
   actualPerKwh: number;
   benchmarkPerKwh: number;

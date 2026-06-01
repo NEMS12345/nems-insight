@@ -12,17 +12,28 @@ export interface OperationsFindings {
   baseLoadKw: number;
   /** Base load as a fraction of peak demand (high = lots of always-on load). */
   baseLoadFractionOfPeak: number;
+  /**
+   * AVOIDABLE portion of base load, kW — observed base load minus an assumed essential
+   * floor (refrigeration/servers/security legitimately run overnight). Conservative: only
+   * this part should be dollarised, pending site confirmation.
+   */
+  avoidableBaseLoadKw: number;
   /** Average daily consumption on weekdays, kWh. */
   weekdayDailyKwh: number;
   /** Average daily consumption on weekends, kWh. */
   weekendDailyKwh: number;
   /** Weekend daily use as a fraction of weekday daily use (high = running when likely closed). */
   weekendFractionOfWeekday: number;
-  /** Fraction of consumption outside business hours (before 7am / after 6pm, and weekends). */
+  /** Fraction of consumption energy outside business hours (before 7am / after 6pm, and weekends). */
   outOfHoursFraction: number;
+  /** Fraction of TIME outside business hours (for estimating avoidable run-hours). */
+  outOfHoursTimeFraction: number;
   /** Change in monthly base load from first to last month (fraction; +ve = creep up). */
   baseLoadCreep: number | null;
 }
+
+/** Assumed share of overnight base load that is essential (not avoidable). Conservative. */
+export const DEFAULT_ESSENTIAL_BASE_FRACTION = 0.6;
 
 const OVERNIGHT_START = 0;
 const OVERNIGHT_END = 5 * 60;
@@ -36,10 +47,13 @@ const BUSINESS_END = 18 * 60;
  */
 export function analyseOperations(
   readings: ReadonlyArray<AnalyticsReading>,
+  essentialBaseFraction: number = DEFAULT_ESSENTIAL_BASE_FRACTION,
 ): OperationsFindings {
   let total = 0;
   let outOfHours = 0;
   let peakKw = 0;
+  let intervalCount = 0;
+  let outOfHoursIntervals = 0;
 
   const overnightKwByMonth = new Map<string, { sum: number; n: number }>();
   const dailyKwh = new Map<string, { kwh: number; dayType: "weekday" | "weekend" }>();
@@ -50,9 +64,13 @@ export function analyseOperations(
     const dayType = aestDayType(r.intervalStart);
 
     total += r.value;
+    intervalCount++;
     const businessHours =
       dayType === "weekday" && minute >= BUSINESS_START && minute < BUSINESS_END;
-    if (!businessHours) outOfHours += r.value;
+    if (!businessHours) {
+      outOfHours += r.value;
+      outOfHoursIntervals++;
+    }
 
     const kw = intervalPowerKw(r.value, r.intervalLength);
     if (kw > peakKw) peakKw = kw;
@@ -111,11 +129,13 @@ export function analyseOperations(
   return {
     baseLoadKw,
     baseLoadFractionOfPeak: peakKw === 0 ? 0 : baseLoadKw / peakKw,
+    avoidableBaseLoadKw: baseLoadKw * (1 - essentialBaseFraction),
     weekdayDailyKwh,
     weekendDailyKwh,
     weekendFractionOfWeekday:
       weekdayDailyKwh === 0 ? 0 : weekendDailyKwh / weekdayDailyKwh,
     outOfHoursFraction: total === 0 ? 0 : outOfHours / total,
+    outOfHoursTimeFraction: intervalCount === 0 ? 0 : outOfHoursIntervals / intervalCount,
     baseLoadCreep,
   };
 }

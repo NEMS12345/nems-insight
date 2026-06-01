@@ -21,3 +21,19 @@ export function sortSavings(items: SavingsItem[]): SavingsItem[] {
 export function totalAnnualSaving(items: ReadonlyArray<SavingsItem>): number {
   return items.reduce((sum, i) => sum + i.annualSavingAud, 0);
 }
+
+const RANK: Confidence[] = ["high", "medium", "low"];
+
+/**
+ * Downgrade a confidence rating when the underlying data is weak — a partial/one-season
+ * window or a high estimated/substituted share. Ties data quality directly to confidence.
+ */
+export function adjustConfidence(
+  base: Confidence,
+  opts: { seasonalCaveat: boolean; estimatedFraction: number },
+): Confidence {
+  let idx = RANK.indexOf(base);
+  if (opts.seasonalCaveat) idx++;
+  if (opts.estimatedFraction > 0.1) idx++;
+  return RANK[Math.min(idx, RANK.length - 1)];
+}

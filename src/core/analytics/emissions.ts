@@ -20,6 +20,27 @@ export function ngaFactor(state: string | undefined): number {
   return NGA_SCOPE2_LOCATION_T_PER_MWH[(state ?? "").toUpperCase()] ?? 0.68;
 }
 
+// Scope 3 electricity factors (transmission & distribution losses + extraction/production of
+// fuels), published separately by NGA. Indicative — confirm against the current release.
+export const NGA_SCOPE3_T_PER_MWH: Record<string, number> = {
+  QLD: 0.11,
+  NSW: 0.1,
+  VIC: 0.11,
+  SA: 0.05,
+  WA: 0.08,
+  TAS: 0.03,
+  NT: 0.07,
+};
+
+export function ngaScope3Factor(state: string | undefined): number {
+  return NGA_SCOPE3_T_PER_MWH[(state ?? "").toUpperCase()] ?? 0.1;
+}
+
+/** Scope 3 electricity emissions (T&D losses + upstream), tonnes CO₂-e. */
+export function scope3Electricity(kWh: number, factorTPerMwh: number): number {
+  return (kWh / 1000) * factorTPerMwh;
+}
+
 export interface Scope2 {
   /** Location-based Scope 2, tonnes CO₂-e. */
   locationTonnes: number;

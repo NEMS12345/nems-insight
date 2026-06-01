@@ -16,6 +16,10 @@ export interface SolarAssumptions {
   degradationPerYear: number;
   /** System life for the lifetime saving figure (years). */
   systemLifeYears: number;
+  /** Year the inverter is replaced (lifetime value only). */
+  inverterReplacementYear: number;
+  /** Inverter replacement cost as a fraction of install cost. */
+  inverterReplacementFraction: number;
 }
 
 export const DEFAULT_SOLAR_ASSUMPTIONS: SolarAssumptions = {
@@ -26,19 +30,28 @@ export const DEFAULT_SOLAR_ASSUMPTIONS: SolarAssumptions = {
   solarEndHour: 17,
   degradationPerYear: 0.005,
   systemLifeYears: 25,
+  inverterReplacementYear: 11,
+  inverterReplacementFraction: 0.15,
 };
 
-export interface SolarRecommendation {
-  recommendedKwp: number;
+export interface SolarOption {
+  kwp: number;
   annualGenerationKwh: number;
   selfConsumedKwh: number;
   exportedKwh: number;
   selfConsumptionPct: number;
   annualSavingAud: number;
-  /** Undiscounted saving over system life, accounting for degradation. */
+  /** Undiscounted saving over system life: degradation + one inverter replacement. */
   lifetimeSavingAud: number;
   simplePaybackYears: number | null;
   co2OffsetTonnes: number;
+}
+
+export interface SolarRecommendation extends SolarOption {
+  /** Best simple payback — the conservative, cash-constrained choice. */
+  recommendedKwp: number;
+  /** Largest lifetime value — the asset-owner choice (often larger). */
+  maxValue: SolarOption;
   assumptions: SolarAssumptions;
 }
 
@@ -129,36 +142,39 @@ export function recommendSolar(
     .filter((k) => k > 0);
   const uniqueCandidates = [...new Set(candidates)];
 
-  const outcomes = uniqueCandidates.map((kwp) =>
-    evaluateSize(load, dayCount, kwp, avoidedRatePerKwh, a),
+  const toOption = (o: SizeOutcome): SolarOption => {
+    let lifetime = 0;
+    for (let yr = 0; yr < a.systemLifeYears; yr++) {
+      lifetime += o.annualSavingAud * Math.pow(1 - a.degradationPerYear, yr);
+    }
+    if (a.systemLifeYears > a.inverterReplacementYear) {
+      lifetime -= o.kwp * a.installCostPerWatt * 1000 * a.inverterReplacementFraction;
+    }
+    const total = o.annualSelfKwh + o.annualExportKwh;
+    return {
+      kwp: o.kwp,
+      annualGenerationKwh: o.annualGenerationKwh,
+      selfConsumedKwh: o.annualSelfKwh,
+      exportedKwh: o.annualExportKwh,
+      selfConsumptionPct: total === 0 ? 0 : o.annualSelfKwh / total,
+      annualSavingAud: o.annualSavingAud,
+      lifetimeSavingAud: lifetime,
+      simplePaybackYears: o.paybackYears,
+      co2OffsetTonnes: (o.annualGenerationKwh / 1000) * a.gridEmissionsTPerMwh,
+    };
+  };
+
+  const options = (uniqueCandidates.length > 0 ? uniqueCandidates : [0]).map((kwp) =>
+    toOption(evaluateSize(load, dayCount, kwp, avoidedRatePerKwh, a)),
   );
 
-  // Best payback; if none have a payback (no avoided cost), fall back to the smallest size.
-  const withPayback = outcomes.filter((o) => o.paybackYears !== null);
-  const chosen =
+  // Min-payback = conservative/cash-constrained; max-lifetime = asset-owner choice.
+  const withPayback = options.filter((o) => o.simplePaybackYears !== null);
+  const minPayback =
     withPayback.length > 0
-      ? withPayback.reduce((best, o) =>
-          o.paybackYears! < best.paybackYears! ? o : best,
-        )
-      : (outcomes[0] ?? evaluateSize(load, dayCount, 0, avoidedRatePerKwh, a));
+      ? withPayback.reduce((b, o) => (o.simplePaybackYears! < b.simplePaybackYears! ? o : b))
+      : options[0];
+  const maxValue = options.reduce((b, o) => (o.lifetimeSavingAud > b.lifetimeSavingAud ? o : b));
 
-  // Lifetime saving with degradation (undiscounted).
-  let lifetime = 0;
-  for (let yr = 0; yr < a.systemLifeYears; yr++) {
-    lifetime += chosen.annualSavingAud * Math.pow(1 - a.degradationPerYear, yr);
-  }
-
-  const total = chosen.annualSelfKwh + chosen.annualExportKwh;
-  return {
-    recommendedKwp: chosen.kwp,
-    annualGenerationKwh: chosen.annualGenerationKwh,
-    selfConsumedKwh: chosen.annualSelfKwh,
-    exportedKwh: chosen.annualExportKwh,
-    selfConsumptionPct: total === 0 ? 0 : chosen.annualSelfKwh / total,
-    annualSavingAud: chosen.annualSavingAud,
-    lifetimeSavingAud: lifetime,
-    simplePaybackYears: chosen.paybackYears,
-    co2OffsetTonnes: (chosen.annualGenerationKwh / 1000) * a.gridEmissionsTPerMwh,
-    assumptions: a,
-  };
+  return { ...minPayback, recommendedKwp: minPayback.kwp, maxValue, assumptions: a };
 }
