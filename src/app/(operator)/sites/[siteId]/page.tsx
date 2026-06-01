@@ -63,16 +63,18 @@ export default async function SitePage({
             {meteringPoints.map((mp) => {
               const n = counts.get(mp.id) ?? 0;
               return (
-                <li
-                  key={mp.id}
-                  className="flex items-center justify-between px-4 py-3"
-                >
-                  <span className="font-mono">{mp.nmi}</span>
-                  <span className="text-xs text-foreground/50">
-                    {n > 0
-                      ? `${n.toLocaleString("en-AU")} intervals`
-                      : "no data yet"}
-                  </span>
+                <li key={mp.id}>
+                  <Link
+                    href={`/metering-points/${mp.id}`}
+                    className="flex items-center justify-between px-4 py-3 hover:bg-black/[0.03]"
+                  >
+                    <span className="font-mono">{mp.nmi}</span>
+                    <span className="text-xs text-foreground/50">
+                      {n > 0
+                        ? `${n.toLocaleString("en-AU")} intervals →`
+                        : "no data yet"}
+                    </span>
+                  </Link>
                 </li>
               );
             })}
