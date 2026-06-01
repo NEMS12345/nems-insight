@@ -9,6 +9,7 @@ import {
   meteringPointEnergiesForSite,
 } from "@/data/repositories/rollups";
 import { energyLabel } from "@/lib/format";
+import { SubmitButton } from "@/components/SubmitButton";
 import { createMeteringPointAction, importDataAction } from "../../actions";
 
 const STATUS_STYLE: Record<string, string> = {
@@ -140,12 +141,12 @@ export default async function SitePage({
               className="w-1/2 rounded border border-border px-3 py-2 text-sm"
             />
           </div>
-          <button
-            type="submit"
+          <SubmitButton
             className="self-start rounded bg-accent hover:bg-accent-hover px-3 py-2 text-sm text-white"
+            pendingText="Adding…"
           >
             Add NMI
-          </button>
+          </SubmitButton>
         </form>
       </section>
 
@@ -168,12 +169,12 @@ export default async function SitePage({
             accept=".csv,.dat,.txt,.xlsx,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             className="text-sm"
           />
-          <button
-            type="submit"
+          <SubmitButton
             className="self-start rounded bg-accent hover:bg-accent-hover px-3 py-2 text-sm text-white"
+            pendingText="Importing… (large files can take a minute)"
           >
             Upload &amp; import
-          </button>
+          </SubmitButton>
         </form>
       </section>
 

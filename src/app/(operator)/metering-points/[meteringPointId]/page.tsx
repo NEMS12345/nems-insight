@@ -26,6 +26,7 @@ import {
 import { listBillsForMeteringPoint } from "@/data/repositories/bills";
 import { getRetailPlan } from "@/data/repositories/retailPlans";
 import { BarChart } from "@/components/BarChart";
+import { SubmitButton } from "@/components/SubmitButton";
 import { moneyLabel } from "@/lib/format";
 import { createBillAction, createRetailPlanAction } from "../../actions";
 
@@ -270,12 +271,12 @@ export default async function MeteringPointPage({
                   />
                 </label>
               ))}
-              <button
-                type="submit"
+              <SubmitButton
                 className="col-span-2 justify-self-start rounded bg-accent hover:bg-accent-hover px-3 py-2 text-sm text-white md:col-span-3"
+                pendingText="Saving…"
               >
                 Save retail plan
-              </button>
+              </SubmitButton>
             </form>
           </section>
 
@@ -355,12 +356,12 @@ export default async function MeteringPointPage({
                   className="rounded border border-border px-3 py-2 text-sm text-foreground"
                 />
               </label>
-              <button
-                type="submit"
+              <SubmitButton
                 className="col-span-2 justify-self-start rounded bg-accent hover:bg-accent-hover px-3 py-2 text-sm text-white"
+                pendingText="Reconciling…"
               >
                 Add bill &amp; reconcile
-              </button>
+              </SubmitButton>
             </form>
           </section>
         </>

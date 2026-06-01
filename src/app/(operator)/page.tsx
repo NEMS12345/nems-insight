@@ -5,6 +5,7 @@ import { getLatestMarketPrice } from "@/data/repositories/marketPrices";
 import { getLatestEmissionsFactor } from "@/data/repositories/emissionsFactors";
 import { ngaFactor, NGA_FACTOR_YEAR } from "@/core/analytics";
 import { energyLabel } from "@/lib/format";
+import { SubmitButton } from "@/components/SubmitButton";
 import {
   createClientAction,
   createMarketPriceAction,
@@ -61,12 +62,12 @@ export default async function ClientsPage() {
               className="rounded border border-border px-3 py-2 text-sm"
             />
           </label>
-          <button
-            type="submit"
+          <SubmitButton
             className="rounded bg-accent hover:bg-accent-hover px-3 py-2 text-sm text-white"
+            pendingText="Saving…"
           >
             Save today&apos;s rate
-          </button>
+          </SubmitButton>
         </form>
       </section>
 
@@ -98,12 +99,12 @@ export default async function ClientsPage() {
               className="rounded border border-border px-3 py-2 text-sm"
             />
           </label>
-          <button
-            type="submit"
+          <SubmitButton
             className="rounded bg-accent hover:bg-accent-hover px-3 py-2 text-sm text-white"
+            pendingText="Saving…"
           >
             Save factor
-          </button>
+          </SubmitButton>
         </form>
       </section>
 
@@ -160,12 +161,12 @@ export default async function ClientsPage() {
             <option value="active">Active</option>
             <option value="archived">Archived</option>
           </select>
-          <button
-            type="submit"
+          <SubmitButton
             className="self-start rounded bg-accent hover:bg-accent-hover px-3 py-2 text-sm text-white"
+            pendingText="Adding…"
           >
             Add client
-          </button>
+          </SubmitButton>
         </form>
       </section>
     </div>

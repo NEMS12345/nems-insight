@@ -4,6 +4,7 @@ import { getClient } from "@/data/repositories/clients";
 import { listSitesForClient } from "@/data/repositories/sites";
 import { clientEnergy, siteEnergiesForClient } from "@/data/repositories/rollups";
 import { energyLabel } from "@/lib/format";
+import { SubmitButton } from "@/components/SubmitButton";
 import { createSiteAction } from "../../actions";
 
 export default async function ClientPage({
@@ -104,12 +105,12 @@ export default async function ClientPage({
             placeholder="Floor area m² (optional — for energy intensity)"
             className="rounded border border-border px-3 py-2 text-sm"
           />
-          <button
-            type="submit"
+          <SubmitButton
             className="self-start rounded bg-accent hover:bg-accent-hover px-3 py-2 text-sm text-white"
+            pendingText="Adding…"
           >
             Add site
-          </button>
+          </SubmitButton>
         </form>
       </section>
     </div>
