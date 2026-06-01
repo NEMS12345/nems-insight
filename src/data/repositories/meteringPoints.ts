@@ -1,0 +1,56 @@
+import { createSupabaseServerClient } from "@/data/supabase/server";
+import type { MeteringPoint } from "@/core/types";
+
+interface MeteringPointRow {
+  id: string;
+  site_id: string;
+  nmi: string;
+  meter_type: MeteringPoint["meterType"];
+}
+
+function toMeteringPoint(row: MeteringPointRow): MeteringPoint {
+  return {
+    id: row.id,
+    siteId: row.site_id,
+    nmi: row.nmi,
+    meterType: row.meter_type,
+  };
+}
+
+export async function listMeteringPointsForSite(
+  siteId: string,
+): Promise<MeteringPoint[]> {
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("metering_point")
+    .select("id, site_id, nmi, meter_type")
+    .eq("site_id", siteId)
+    .order("nmi");
+  if (error) throw error;
+  return (data as MeteringPointRow[]).map(toMeteringPoint);
+}
+
+export interface NewMeteringPoint {
+  siteId: string;
+  /** Denormalised tenancy key; must match the site's client_id (DB enforces this). */
+  clientId: string;
+  nmi: string;
+}
+
+export async function createMeteringPoint(
+  input: NewMeteringPoint,
+): Promise<MeteringPoint> {
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("metering_point")
+    .insert({
+      site_id: input.siteId,
+      client_id: input.clientId,
+      nmi: input.nmi,
+      meter_type: "nmi_parent",
+    })
+    .select("id, site_id, nmi, meter_type")
+    .single();
+  if (error) throw error;
+  return toMeteringPoint(data as MeteringPointRow);
+}

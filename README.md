@@ -59,6 +59,27 @@ npm run dev
 
 Open http://localhost:3000.
 
+### Database setup (Phase 1)
+
+The schema lives in `supabase/migrations/` and is the source of truth.
+
+1. In your Supabase project, run the SQL in `supabase/migrations/0001_initial_schema.sql`
+   (SQL editor, or `supabase db push` if you use the Supabase CLI).
+2. Create your operator login: **Authentication → Users → Add user** (email + password).
+   Use the same email referenced in `supabase/seed/seed.sql` (default `info@nems.au`).
+3. Run `supabase/seed/seed.sql` to link that user to an organisation as an operator and
+   create a sample client/site/NMI.
+4. `npm run dev`, sign in at `/login`, and you can create **client → site → NMI**.
+
+### Useful scripts
+
+```bash
+npm run dev        # start the dev server
+npm run build      # production build
+npm run lint       # eslint (incl. the core-purity boundary rule)
+npm run typecheck  # tsc --noEmit
+```
+
 ## Conventions
 
 - Australian spelling, AUD, AU regulatory context.
