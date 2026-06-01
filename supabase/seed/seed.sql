@@ -1,18 +1,16 @@
--- seed.sql — sample data for local development.
+-- seed.sql — sample data for getting started.
 --
 -- Run this AFTER:
---   1. applying migrations, and
+--   1. applying the schema (supabase/full_schema.sql), and
 --   2. creating your operator login in Supabase Auth (Authentication -> Users -> Add user),
 --      using the email below.
 --
--- It is idempotent — safe to run more than once.
+-- Works in the Supabase SQL Editor (plain SQL). It is idempotent — safe to run again.
+--
+-- The operator user is linked by email. If you used a different email when creating the
+-- Auth user, change 'info@nems.au' in the org_member insert below to match.
 
--- The email of the operator user you created in Supabase Auth. Change if needed.
--- (We link by email so the seed works without hardcoding a user UUID.)
-\set operator_email 'info@nems.au'
-
--- Fixed UUIDs so re-runs are stable.
--- Organisation
+-- Organisation (fixed UUID so re-runs are stable).
 insert into organisation (id, name)
 values ('00000000-0000-0000-0000-0000000000a1', 'NEMS')
 on conflict (id) do nothing;
@@ -21,7 +19,7 @@ on conflict (id) do nothing;
 insert into org_member (user_id, org_id, role)
 select u.id, '00000000-0000-0000-0000-0000000000a1', 'operator'
 from auth.users u
-where u.email = :'operator_email'
+where u.email = 'info@nems.au'
 on conflict (user_id, org_id) do nothing;
 
 -- Sample client portfolio
@@ -39,9 +37,9 @@ values ('00000000-0000-0000-0000-0000000000d1',
 on conflict (id) do nothing;
 
 -- Sample metering point (NMI)
-insert into metering_point (id, site_id, client_id, nmi, meter_type)
+insert into metering_point (id, site_id, client_id, nmi, tariff_code, meter_type)
 values ('00000000-0000-0000-0000-0000000000e1',
         '00000000-0000-0000-0000-0000000000d1',
         '00000000-0000-0000-0000-0000000000c1',
-        '31000000000', 'nmi_parent')
+        '31000000000', '7200', 'nmi_parent')
 on conflict (id) do nothing;
