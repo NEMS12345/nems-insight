@@ -97,6 +97,13 @@ export default async function ClientPage({
               className="flex-1 rounded border border-black/15 px-3 py-2 text-sm"
             />
           </div>
+          <input
+            name="floorAreaM2"
+            type="number"
+            step="0.1"
+            placeholder="Floor area m² (optional — for energy intensity)"
+            className="rounded border border-black/15 px-3 py-2 text-sm"
+          />
           <button
             type="submit"
             className="self-start rounded bg-foreground px-3 py-2 text-sm text-background"

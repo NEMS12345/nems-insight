@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { listClients } from "@/data/repositories/clients";
 import { clientEnergies } from "@/data/repositories/rollups";
+import { getLatestMarketPrice } from "@/data/repositories/marketPrices";
 import { energyLabel } from "@/lib/format";
-import { createClientAction } from "./actions";
+import { createClientAction, createMarketPriceAction } from "./actions";
 
 export default async function ClientsPage() {
-  const [clients, energies] = await Promise.all([
+  const [clients, energies, qldPrice] = await Promise.all([
     listClients(),
     clientEnergies(),
+    getLatestMarketPrice("QLD"),
   ]);
 
   const portfolioKwh = [...energies.values()].reduce(
@@ -26,6 +28,37 @@ export default async function ClientsPage() {
           {clients.length} client{clients.length === 1 ? "" : "s"} ·{" "}
           {clientsWithData} with data · {energyLabel(portfolioKwh)} total consumption
         </p>
+      </section>
+
+      <section className="rounded border border-black/10 bg-black/[0.02] p-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-medium">Market reference price (ASX QLD futures)</h2>
+          <span className="text-sm text-foreground/60">
+            {qldPrice
+              ? `$${qldPrice.futuresPerMwh.toFixed(2)}/MWh · captured ${qldPrice.capturedOn}`
+              : "not set — retail benchmark on hold"}
+          </span>
+        </div>
+        <form action={createMarketPriceAction} className="mt-3 flex items-end gap-3">
+          <input type="hidden" name="region" value="QLD" />
+          <label className="flex flex-col gap-1 text-xs text-foreground/60">
+            Today&apos;s QLD base-load futures ($/MWh)
+            <input
+              name="futuresPerMwh"
+              type="number"
+              step="0.01"
+              required
+              placeholder="e.g. 120.00"
+              className="rounded border border-black/15 px-3 py-2 text-sm"
+            />
+          </label>
+          <button
+            type="submit"
+            className="rounded bg-foreground px-3 py-2 text-sm text-background"
+          >
+            Save today&apos;s rate
+          </button>
+        </form>
       </section>
 
       <section>

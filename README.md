@@ -117,6 +117,15 @@ Energex 7200 tariff (network rates published; retail rates are estimates in
 `src/core/tariff/energex.ts` — replace with the client's contract), and you can **enter a
 bill** to **reconcile** modelled vs billed, flagged match / review / investigate.
 
+### Client report (Phase 6) & later migrations
+
+Apply migrations `0005`–`0009` (per-NMI meter serial, tariff code, loss factors;
+`market_price`; site `floor_area_m2`). The client report lives at
+`/report/[meteringPointId]`. Two operator inputs feed it:
+- **Market reference price** — enter the day's ASX QLD futures ($/MWh) on the operator
+  Portfolio page. The report's **retail benchmark is a hold point** until this is set.
+- **Floor area** (optional) — set per site to show energy intensity (kWh/m²).
+
 ### Useful scripts
 
 ```bash

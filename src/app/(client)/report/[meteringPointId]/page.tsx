@@ -6,6 +6,7 @@ import {
 import { getSite } from "@/data/repositories/sites";
 import { getClient } from "@/data/repositories/clients";
 import { listBillsForMeteringPoint } from "@/data/repositories/bills";
+import { getLatestMarketPrice } from "@/data/repositories/marketPrices";
 import {
   consumptionSummary,
   peakDemand,
@@ -43,9 +44,6 @@ import { PrintButton } from "@/components/PrintButton";
 import { moneyLabel, energyLabel } from "@/lib/format";
 
 const ALL_TARIFFS = [ENERGEX_7200, ENERGEX_7400];
-// Indicative ASX QLD base-load futures, $/MWh. Replace per review with the current figure
-// (licensed feed later) — see docs: benchmarking is input-driven, not scraped.
-const QLD_FUTURES_PER_MWH = 120;
 const TARGET_PF = 0.95;
 const CAPACITOR_COST_PER_KVAR = 60;
 
@@ -92,6 +90,8 @@ export default async function ClientReport({
 
   const tariff = getTariff(mp.tariffCode ?? "") ?? ENERGEX_7200;
   const losses: LossFactors = { mlf: mp.mlf ?? undefined, dlf: mp.dlf ?? undefined };
+  const region = site?.state ?? "QLD";
+  const marketPrice = await getLatestMarketPrice(region);
 
   const summary = consumptionSummary(readings);
   const peak = peakDemand(readings);
@@ -156,10 +156,15 @@ export default async function ClientReport({
     }
     return summary.importKwh > 0 ? dollars / summary.importKwh : 0;
   })();
-  const benchmarkRate = benchmarkRetailEnergyRate(QLD_FUTURES_PER_MWH, {
-    lossUplift: (losses.mlf ?? 1) * (losses.dlf ?? 1),
-  });
-  const retail = compareRetailRate(actualRetailVariableRate, benchmarkRate, annualKwh);
+  const benchmarkRate = marketPrice
+    ? benchmarkRetailEnergyRate(marketPrice.futuresPerMwh, {
+        lossUplift: (losses.mlf ?? 1) * (losses.dlf ?? 1),
+      })
+    : null;
+  const retail =
+    benchmarkRate !== null
+      ? compareRetailRate(actualRetailVariableRate, benchmarkRate, annualKwh)
+      : null;
 
   // Emissions (annualised; NGA location-based, state factor).
   const factor = ngaFactor(site?.state);
@@ -183,7 +188,7 @@ export default async function ClientReport({
 
   // --- Savings register ---
   const register: SavingsItem[] = [];
-  if (retail.aboveBenchmark) {
+  if (retail?.aboveBenchmark && benchmarkRate !== null) {
     register.push({
       measure: "Re-tender retail energy contract",
       annualSavingAud: retail.annualOpportunity,
@@ -250,6 +255,13 @@ export default async function ClientReport({
         <PrintButton />
       </div>
 
+      {!marketPrice && (
+        <p className="mt-4 rounded border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800 print:hidden">
+          ⚠ Retail benchmark is on hold — enter today&apos;s ASX {region} futures price in the
+          operator console to complete it.
+        </p>
+      )}
+
       <div className="mt-6 flex flex-col gap-6">
         <Section title="Summary">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -283,7 +295,15 @@ export default async function ClientReport({
             <Metric label="Average demand" value={kw(averageDemandKw(readings))} />
             <Metric label="Load factor" value={lf.toFixed(2)} sub={lf < 0.4 ? "peaky" : "flat"} />
             <Metric label="Power factor (at peak)" value={pfPeak.powerFactor === null ? "—" : pfPeak.powerFactor.toFixed(2)} />
-            <Metric label="Estimated data" value={pct(summary.estimatedFraction)} />
+            {site?.floorAreaM2 ? (
+              <Metric
+                label="Energy intensity"
+                value={`${(annualKwh / site.floorAreaM2).toLocaleString("en-AU", { maximumFractionDigits: 0 })} kWh/m²`}
+                sub={`${site.floorAreaM2.toLocaleString("en-AU")} m²/yr`}
+              />
+            ) : (
+              <Metric label="Estimated data" value={pct(summary.estimatedFraction)} />
+            )}
           </div>
           <div className="mt-4 text-xs text-black/50">Average daily load profile (kW by time of day)</div>
           <BarChart unit="kW" data={profile.map((p) => ({ label: formatMinuteOfDay(p.minuteOfDay), value: p.avgKw }))} />
@@ -354,17 +374,26 @@ export default async function ClientReport({
         </Section>
 
         <Section title="Retail contract benchmark">
-          <p className="text-sm text-black/80">
-            Your variable retail rate is about <strong>{(actualRetailVariableRate * 100).toFixed(2)}¢/kWh</strong> vs an indicative
-            market benchmark of <strong>{(benchmarkRate * 100).toFixed(2)}¢/kWh</strong>
-            {retail.aboveBenchmark
-              ? <> — re-tendering could be worth ~<strong>{moneyLabel(retail.annualOpportunity)}/yr</strong>.</>
-              : <> — broadly competitive.</>}
-          </p>
-          <p className="mt-1 text-[11px] text-black/50">
-            Benchmark built from an ASX QLD futures price of ${QLD_FUTURES_PER_MWH}/MWh plus margin, environmental,
-            market fees and losses. Indicative only — enter the current futures figure per review.
-          </p>
+          {marketPrice && retail && benchmarkRate !== null ? (
+            <>
+              <p className="text-sm text-black/80">
+                Your variable retail rate is about <strong>{(actualRetailVariableRate * 100).toFixed(2)}¢/kWh</strong> vs an indicative
+                market benchmark of <strong>{(benchmarkRate * 100).toFixed(2)}¢/kWh</strong>
+                {retail.aboveBenchmark
+                  ? <> — re-tendering could be worth ~<strong>{moneyLabel(retail.annualOpportunity)}/yr</strong>.</>
+                  : <> — broadly competitive.</>}
+              </p>
+              <p className="mt-1 text-[11px] text-black/50">
+                Benchmark built from the ASX {region} futures price of ${marketPrice.futuresPerMwh.toFixed(2)}/MWh
+                (captured {marketPrice.capturedOn}) plus margin, environmental, market fees and losses. Indicative only.
+              </p>
+            </>
+          ) : (
+            <p className="rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <strong>On hold.</strong> Enter today&apos;s ASX {region} futures price in the operator console
+              (Portfolio → Market reference price) to produce the retail benchmark.
+            </p>
+          )}
         </Section>
 
         <Section title="Demand management">

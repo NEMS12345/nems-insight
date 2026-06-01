@@ -21,6 +21,7 @@ import { parseMeterProfile } from "@/ingestion/parsers/meterProfile";
 import { readMeterProfileRows } from "@/ingestion/parsers/xlsxRows";
 import type { ParsedReading, ParseResult } from "@/ingestion/types";
 import { createBill } from "@/data/repositories/bills";
+import { createMarketPrice } from "@/data/repositories/marketPrices";
 import { getTariff } from "@/core/tariff";
 import { createSupabaseServerClient } from "@/data/supabase/server";
 import type { Client } from "@/core/types";
@@ -56,12 +57,14 @@ export async function createSiteAction(formData: FormData) {
   const name = str(formData, "name");
   if (!clientId || !name) return;
 
+  const floorArea = Number(str(formData, "floorAreaM2"));
   await createSite({
     clientId,
     name,
     address: str(formData, "address") || undefined,
     state: str(formData, "state") || undefined,
     network: str(formData, "network") || undefined,
+    floorAreaM2: Number.isFinite(floorArea) && floorArea > 0 ? floorArea : undefined,
   });
 
   revalidatePath(`/clients/${clientId}`);
@@ -228,6 +231,18 @@ export async function createBillAction(formData: FormData) {
   });
 
   revalidatePath(`/metering-points/${meteringPointId}`);
+}
+
+export async function createMarketPriceAction(formData: FormData) {
+  const ctx = await getOperatorContext();
+  if (!ctx) redirect("/login");
+
+  const region = str(formData, "region") || "QLD";
+  const futures = Number(str(formData, "futuresPerMwh"));
+  if (!Number.isFinite(futures) || futures <= 0) return;
+
+  await createMarketPrice({ orgId: ctx.orgId, region, futuresPerMwh: futures });
+  revalidatePath("/");
 }
 
 export async function signOutAction() {

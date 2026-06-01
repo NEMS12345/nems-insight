@@ -47,6 +47,8 @@ export interface Site {
   address?: string;
   state?: string; // AU state/territory, e.g. "QLD"
   network?: string; // DNSP, e.g. "Energex"
+  /** Optional gross floor area (m²) for energy-intensity reporting. */
+  floorAreaM2?: number;
 }
 
 /**
