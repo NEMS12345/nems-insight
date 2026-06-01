@@ -15,25 +15,11 @@
 // for analytics convenience. Flag if you want the other convention — easy to switch.
 
 import type { QualityFlag, ReadingUnit } from "@/core/types";
+import type { ParsedReading, ParseResult } from "@/ingestion/types";
 
-export interface Nem12Reading {
-  nmi: string;
-  channel: string; // NMI suffix, e.g. "E1", "B1", "Q1"
-  intervalStart: string; // ISO 8601 with +10:00 offset
-  intervalLength: number; // minutes (5 | 15 | 30)
-  value: number;
-  unit: ReadingUnit;
-  quality: QualityFlag;
-}
-
-export interface Nem12ParseResult {
-  readings: Nem12Reading[];
-  nmis: string[];
-  /** Fatal problems with specific rows; those rows are skipped. */
-  errors: string[];
-  /** Non-fatal oddities worth surfacing in the import audit. */
-  warnings: string[];
-}
+// NEM12 emits the shared normalised shapes. Aliases kept for readability/back-compat.
+export type Nem12Reading = ParsedReading;
+export type Nem12ParseResult = ParseResult;
 
 const QUALITY_BY_CODE: Record<string, QualityFlag> = {
   A: "actual",

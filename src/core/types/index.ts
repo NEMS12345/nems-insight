@@ -57,6 +57,8 @@ export interface MeteringPoint {
   id: string;
   siteId: string;
   nmi: string;
+  /** Meter serial, where the source identifies individual meters under an NMI. */
+  meterSerial?: string;
   meterType: "nmi-parent";
 }
 

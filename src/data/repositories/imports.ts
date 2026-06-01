@@ -14,27 +14,32 @@ export interface ImportBatchSummary {
   warningCount: number;
 }
 
-interface MeteringPointRef {
+export interface MeteringPointRef {
   id: string;
   clientId: string;
+  nmi: string;
+  meterSerial: string | null;
 }
 
-/** Map of NMI -> metering point for every NMI configured under a site. */
-export async function meteringPointsByNmiForSite(
+/** Every metering point configured under a site, for matching parsed readings. */
+export async function meteringPointRefsForSite(
   siteId: string,
-): Promise<Map<string, MeteringPointRef>> {
+): Promise<MeteringPointRef[]> {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
     .from("metering_point")
-    .select("id, client_id, nmi")
+    .select("id, client_id, nmi, meter_serial")
     .eq("site_id", siteId);
   if (error) throw error;
 
-  const map = new Map<string, MeteringPointRef>();
-  for (const row of data as { id: string; client_id: string; nmi: string }[]) {
-    map.set(row.nmi, { id: row.id, clientId: row.client_id });
-  }
-  return map;
+  return (
+    data as { id: string; client_id: string; nmi: string; meter_serial: string | null }[]
+  ).map((row) => ({
+    id: row.id,
+    clientId: row.client_id,
+    nmi: row.nmi,
+    meterSerial: row.meter_serial,
+  }));
 }
 
 export interface UploadedRawFile {
@@ -79,6 +84,7 @@ export async function createImportBatch(params: {
   clientId: string;
   rawFileId: string | null;
   filename: string;
+  format: string;
 }): Promise<string> {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
@@ -87,7 +93,7 @@ export async function createImportBatch(params: {
       client_id: params.clientId,
       raw_file_id: params.rawFileId,
       filename: params.filename,
-      format: "NEM12",
+      format: params.format,
       status: "pending",
     })
     .select("id")

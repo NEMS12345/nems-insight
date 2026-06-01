@@ -5,14 +5,18 @@ interface MeteringPointRow {
   id: string;
   site_id: string;
   nmi: string;
+  meter_serial: string | null;
   meter_type: MeteringPoint["meterType"];
 }
+
+const COLS = "id, site_id, nmi, meter_serial, meter_type";
 
 function toMeteringPoint(row: MeteringPointRow): MeteringPoint {
   return {
     id: row.id,
     siteId: row.site_id,
     nmi: row.nmi,
+    meterSerial: row.meter_serial ?? undefined,
     meterType: row.meter_type,
   };
 }
@@ -23,7 +27,7 @@ export async function listMeteringPointsForSite(
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
     .from("metering_point")
-    .select("id, site_id, nmi, meter_type")
+    .select(COLS)
     .eq("site_id", siteId)
     .order("nmi");
   if (error) throw error;
@@ -35,6 +39,7 @@ export interface NewMeteringPoint {
   /** Denormalised tenancy key; must match the site's client_id (DB enforces this). */
   clientId: string;
   nmi: string;
+  meterSerial?: string;
 }
 
 export async function createMeteringPoint(
@@ -47,9 +52,10 @@ export async function createMeteringPoint(
       site_id: input.siteId,
       client_id: input.clientId,
       nmi: input.nmi,
+      meter_serial: input.meterSerial || null,
       meter_type: "nmi_parent",
     })
-    .select("id, site_id, nmi, meter_type")
+    .select(COLS)
     .single();
   if (error) throw error;
   return toMeteringPoint(data as MeteringPointRow);

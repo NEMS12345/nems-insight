@@ -92,9 +92,15 @@ The schema lives in `supabase/migrations/` and is the source of truth.
                  and can_operate_client((storage.foldername(name))[1]::uuid));
    ```
 
-3. On a site page you can now **upload a NEM12 file**: it's parsed (all channels, with
-   quality flags), the original is kept in Storage, readings land against the matching
-   NMIs, and every upload is recorded in the import history.
+3. On a site page you can now **upload interval data**: a **NEM12** file (.csv/.dat) or a
+   **30-minute meter-profile export** (.xlsx, one row per meter per interval). All channels
+   (consumption, export, reactive) are parsed with quality flags, the original is kept in
+   Storage, readings land against the matching NMIs/meters, and every upload is recorded in
+   the import history.
+
+   For sources that report several meters under one NMI, apply
+   `supabase/migrations/0005_meter_serial.sql` and create one metering point per meter
+   (enter the meter serial when adding the NMI). Each meter is its own metering point.
 
 ### Portfolio rollups (Phase 5)
 

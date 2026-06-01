@@ -8,14 +8,18 @@ import { createClient } from "@/data/repositories/clients";
 import { createSite, getSite } from "@/data/repositories/sites";
 import { createMeteringPoint } from "@/data/repositories/meteringPoints";
 import {
-  meteringPointsByNmiForSite,
+  meteringPointRefsForSite,
   storeRawFile,
   createImportBatch,
   finishImportBatch,
   upsertReadings,
   type ReadingInsert,
+  type MeteringPointRef,
 } from "@/data/repositories/imports";
 import { parseNem12 } from "@/ingestion/parsers/nem12";
+import { parseMeterProfile } from "@/ingestion/parsers/meterProfile";
+import { readMeterProfileRows } from "@/ingestion/parsers/xlsxRows";
+import type { ParsedReading, ParseResult } from "@/ingestion/types";
 import { createBill } from "@/data/repositories/bills";
 import { getTariff } from "@/core/tariff";
 import { createSupabaseServerClient } from "@/data/supabase/server";
@@ -72,12 +76,17 @@ export async function createMeteringPointAction(formData: FormData) {
   const nmi = str(formData, "nmi");
   if (!siteId || !clientId || !nmi) return;
 
-  await createMeteringPoint({ siteId, clientId, nmi });
+  await createMeteringPoint({
+    siteId,
+    clientId,
+    nmi,
+    meterSerial: str(formData, "meterSerial") || undefined,
+  });
 
   revalidatePath(`/sites/${siteId}`);
 }
 
-export async function importNem12Action(formData: FormData) {
+export async function importDataAction(formData: FormData) {
   const ctx = await getOperatorContext();
   if (!ctx) redirect("/login");
 
@@ -89,12 +98,21 @@ export async function importNem12Action(formData: FormData) {
   if (!site) return;
   const clientId = site.clientId;
 
-  // Read the upload once; derive both the text (to parse) and bytes (to store + hash).
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const text = new TextDecoder().decode(bytes);
   const sha256 = createHash("sha256").update(bytes).digest("hex");
 
-  const result = parseNem12(text);
+  // Pick the parser by file type: xlsx -> meter-profile export, otherwise NEM12 text.
+  const isXlsx =
+    /\.xlsx$/i.test(file.name) || file.type.includes("spreadsheet");
+  let result: ParseResult;
+  let format: string;
+  if (isXlsx) {
+    format = "MeterProfile";
+    result = parseMeterProfile(await readMeterProfileRows(bytes));
+  } else {
+    format = "NEM12";
+    result = parseNem12(new TextDecoder().decode(bytes));
+  }
   const errors = [...result.errors];
   const warnings = [...result.warnings];
 
@@ -105,7 +123,7 @@ export async function importNem12Action(formData: FormData) {
       clientId,
       storagePath: `${clientId}/${Date.now()}-${file.name}`,
       filename: file.name,
-      contentType: file.type || "text/plain",
+      contentType: file.type || (isXlsx ? "application/octet-stream" : "text/plain"),
       byteSize: file.size,
       sha256,
       bytes,
@@ -114,21 +132,32 @@ export async function importNem12Action(formData: FormData) {
     warnings.push(`Original file could not be stored: ${(e as Error).message}`);
   }
 
-  const batchId = await createImportBatch({
-    clientId,
-    rawFileId,
-    filename: file.name,
-  });
+  const batchId = await createImportBatch({ clientId, rawFileId, filename: file.name, format });
 
-  // Match each NMI in the file to a metering point configured under this site.
-  const mpByNmi = await meteringPointsByNmiForSite(siteId);
+  // Match each reading to a metering point. A reading with a meter serial matches by
+  // (NMI, serial); without one (NEM12), it matches the site's single point for that NMI.
+  const refs = await meteringPointRefsForSite(siteId);
+  const byNmiSerial = new Map<string, MeteringPointRef>();
+  const byNmi = new Map<string, MeteringPointRef[]>();
+  for (const ref of refs) {
+    byNmiSerial.set(`${ref.nmi}|${ref.meterSerial ?? ""}`, ref);
+    const arr = byNmi.get(ref.nmi) ?? [];
+    arr.push(ref);
+    byNmi.set(ref.nmi, arr);
+  }
+  const matchRef = (r: ParsedReading): MeteringPointRef | undefined => {
+    if (r.meterSerial != null) return byNmiSerial.get(`${r.nmi}|${r.meterSerial}`);
+    const arr = byNmi.get(r.nmi);
+    if (!arr || arr.length === 0) return undefined;
+    return arr.find((a) => a.meterSerial == null) ?? (arr.length === 1 ? arr[0] : undefined);
+  };
+
   const unmatched = new Set<string>();
   const rows: ReadingInsert[] = [];
-
   for (const r of result.readings) {
-    const mp = mpByNmi.get(r.nmi);
+    const mp = matchRef(r);
     if (!mp) {
-      unmatched.add(r.nmi);
+      unmatched.add(r.meterSerial ? `${r.nmi} / meter ${r.meterSerial}` : r.nmi);
       continue;
     }
     rows.push({
@@ -143,9 +172,9 @@ export async function importNem12Action(formData: FormData) {
       importBatchId: batchId,
     });
   }
-  for (const nmi of unmatched) {
+  for (const u of unmatched) {
     warnings.push(
-      `NMI ${nmi} in the file is not configured under this site — its readings were skipped.`,
+      `${u} in the file is not configured under this site — its readings were skipped.`,
     );
   }
 

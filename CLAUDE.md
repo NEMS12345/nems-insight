@@ -142,8 +142,11 @@ retail charges are clearly-labelled estimates until the client's contract rates 
 
 ### IN v1
 1. Multi-tenant foundation (hierarchy + RLS + operator role).
-2. **NEM12 ingestion** — drag-and-drop upload, all channels (E/B/Q), gap detection,
-   quality flags, original file retained, import audit trail.
+2. **Interval ingestion** — drag-and-drop upload, one adapter per format: **NEM12**
+   (.csv/.dat) and the tabular **30-minute meter-profile export** (.xlsx). All channels
+   (E/B/Q), gap detection, quality flags, original file retained, import audit trail.
+   Sources may identify several meters under one NMI; each meter serial is its own metering
+   point (`metering_point.meter_serial`) — a general extension, NOT sub-metering/allocation.
 3. **Structured bill capture** — operator enters bill facts (retailer, tariff name, period,
    line items, total) via a form; original PDF stored for reference. **NOT automated PDF
    parsing.**

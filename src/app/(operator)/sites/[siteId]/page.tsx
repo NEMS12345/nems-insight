@@ -9,7 +9,7 @@ import {
   meteringPointEnergiesForSite,
 } from "@/data/repositories/rollups";
 import { energyLabel } from "@/lib/format";
-import { createMeteringPointAction, importNem12Action } from "../../actions";
+import { createMeteringPointAction, importDataAction } from "../../actions";
 
 const STATUS_STYLE: Record<string, string> = {
   parsed: "text-green-700",
@@ -76,7 +76,14 @@ export default async function SitePage({
                     href={`/metering-points/${mp.id}`}
                     className="flex items-center justify-between px-4 py-3 hover:bg-black/[0.03]"
                   >
-                    <span className="font-mono">{mp.nmi}</span>
+                    <span className="font-mono">
+                      {mp.nmi}
+                      {mp.meterSerial && (
+                        <span className="ml-2 text-xs text-foreground/40">
+                          meter {mp.meterSerial}
+                        </span>
+                      )}
+                    </span>
                     <span className="text-xs text-foreground/50">
                       {e && e.readingCount > 0
                         ? `${energyLabel(e.importKwh)} →`
@@ -104,6 +111,11 @@ export default async function SitePage({
             placeholder="NMI (e.g. 31000000000)"
             className="rounded border border-black/15 px-3 py-2 font-mono text-sm"
           />
+          <input
+            name="meterSerial"
+            placeholder="Meter serial (optional — only if the NMI has several meters)"
+            className="rounded border border-black/15 px-3 py-2 font-mono text-sm"
+          />
           <button
             type="submit"
             className="self-start rounded bg-foreground px-3 py-2 text-sm text-background"
@@ -114,13 +126,14 @@ export default async function SitePage({
       </section>
 
       <section className="rounded border border-black/10 p-4">
-        <h2 className="font-medium">Import NEM12 data</h2>
+        <h2 className="font-medium">Import interval data</h2>
         <p className="mt-1 text-xs text-foreground/60">
-          Upload a NEM12 file. Its NMIs are matched to the metering points above; all
-          channels (consumption, export, reactive) are imported with quality flags.
+          Upload a NEM12 file (.csv/.dat) or a 30-minute meter-profile export (.xlsx). NMIs
+          and meter serials are matched to the metering points above; all channels
+          (consumption, export, reactive) are imported with quality flags.
         </p>
         <form
-          action={importNem12Action}
+          action={importDataAction}
           className="mt-3 flex flex-col gap-3"
         >
           <input type="hidden" name="siteId" value={siteId} />
@@ -128,7 +141,7 @@ export default async function SitePage({
             type="file"
             name="file"
             required
-            accept=".csv,.dat,.txt,text/csv,text/plain"
+            accept=".csv,.dat,.txt,.xlsx,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             className="text-sm"
           />
           <button
