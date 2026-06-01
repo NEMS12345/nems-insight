@@ -141,6 +141,26 @@ export default async function SitePage({
               className="w-1/2 rounded border border-border px-3 py-2 text-sm"
             />
           </div>
+          <div className="flex gap-3">
+            <select
+              name="connectionVoltage"
+              defaultValue=""
+              className="w-1/2 rounded border border-border px-3 py-2 text-sm"
+            >
+              <option value="">Connection voltage… (for tariff eligibility)</option>
+              <option value="LV">LV (low voltage)</option>
+              <option value="HV">HV (high voltage / 11kV)</option>
+            </select>
+            <input
+              name="assumedPf"
+              type="number"
+              step="0.01"
+              min="0"
+              max="1"
+              placeholder="Assumed PF (only if no reactive data)"
+              className="w-1/2 rounded border border-border px-3 py-2 text-sm"
+            />
+          </div>
           <SubmitButton
             className="self-start rounded bg-accent hover:bg-accent-hover px-3 py-2 text-sm text-white"
             pendingText="Adding…"

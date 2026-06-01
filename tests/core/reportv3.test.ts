@@ -68,7 +68,7 @@ describe("solar reports both min-payback and max-value sizes", () => {
 
 describe("demandShaveSaving", () => {
   const tariff: Tariff = {
-    code: "T", name: "t", network: "Energex", currency: "AUD", hasEstimatedCharges: false,
+    code: "T", name: "t", network: "Energex", currency: "AUD", voltageClass: "LV", hasEstimatedCharges: false,
     periods: { peak: { dayTypes: ["weekday"], ranges: [{ startMin: 0, endMin: 1440 }] }, offpeak: { dayTypes: [], ranges: [] } },
     charges: [{ kind: "demand_monthly", category: "network", label: "d", period: "peak", unit: "kW", rate: 10 }],
   };

@@ -1,6 +1,5 @@
--- NEMS Insight — full schema (migrations 0001–0011 combined).
--- Paste this entire file into the Supabase SQL Editor and Run. Idempotent? No —
--- run once on a fresh project. auth.users / auth.uid() are provided by Supabase.
+-- NEMS Insight — full schema (all migrations combined). Paste into Supabase SQL Editor.
+-- Fresh project only. auth.users / auth.uid() are provided by Supabase.
 
 -- ============================================================
 -- 0001_initial_schema.sql
@@ -561,4 +560,17 @@ create policy retail_plan_select on retail_plan
   for select using (can_access_client(client_id));
 create policy retail_plan_write on retail_plan
   for all using (can_operate_client(client_id)) with check (can_operate_client(client_id));
+
+-- ============================================================
+-- 0012_nmi_voltage_pf.sql
+-- ============================================================
+-- 0012_nmi_voltage_pf.sql
+-- Per-NMI connection voltage (eligibility) and an optional assumed power factor.
+--   connection_voltage: 'LV' | 'HV' — a physical constraint on which tariffs apply. When
+--     null, the report must not offer cross-voltage tariff alternatives.
+--   assumed_pf: used only when the data has no reactive channel and a kVA-demand tariff is
+--     being assessed; never defaults to 1.0.
+
+alter table metering_point add column connection_voltage text;  -- 'LV' | 'HV'
+alter table metering_point add column assumed_pf numeric(4, 3);
 

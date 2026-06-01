@@ -2,10 +2,12 @@ import type { AnalyticsReading } from "@/core/analytics/types";
 import { channelKind, intervalPowerKw } from "@/core/analytics/types";
 
 export interface PowerFactorResult {
-  /** Power factor in (0, 1], or null when there's no real energy to assess. */
+  /** Power factor in (0, 1], or null when it can't be determined (no reactive data). */
   powerFactor: number | null;
   realKwh: number;
   reactiveKvarh: number;
+  /** Whether the dataset actually contains a reactive (Q) channel. */
+  reactiveDataAvailable: boolean;
 }
 
 function pf(realKwh: number, reactiveKvarh: number): number | null {
@@ -14,24 +16,40 @@ function pf(realKwh: number, reactiveKvarh: number): number | null {
   return realKwh / apparent;
 }
 
+/** Does this dataset include a reactive (Q) channel? PF/kVA can only be derived if so. */
+export function hasReactiveData(
+  readings: ReadonlyArray<AnalyticsReading>,
+): boolean {
+  return readings.some((r) => channelKind(r.channel) === "reactive");
+}
+
 /**
- * Average power factor over a period: total real energy / total apparent energy, where
- * apparent is derived from real (consumption) and reactive (Q) channels. Reactive data is
- * required — a site with no Q channel returns reactive 0 and a power factor of 1.
+ * Average power factor over a period. CRUCIAL: if the dataset has NO reactive channel, power
+ * factor is NOT determinable — we return null (never a fabricated 1.00). Only when reactive
+ * data is present is a real PF computed.
  */
 export function periodPowerFactor(
   readings: ReadonlyArray<AnalyticsReading>,
 ): PowerFactorResult {
   let realKwh = 0;
   let reactiveKvarh = 0;
+  let reactiveSeen = false;
 
   for (const r of readings) {
     const kind = channelKind(r.channel);
     if (kind === "consumption") realKwh += r.value;
-    else if (kind === "reactive") reactiveKvarh += r.value;
+    else if (kind === "reactive") {
+      reactiveKvarh += r.value;
+      reactiveSeen = true;
+    }
   }
 
-  return { powerFactor: pf(realKwh, reactiveKvarh), realKwh, reactiveKvarh };
+  return {
+    powerFactor: reactiveSeen ? pf(realKwh, reactiveKvarh) : null,
+    realKwh,
+    reactiveKvarh,
+    reactiveDataAvailable: reactiveSeen,
+  };
 }
 
 export interface IntervalPowerFactor {
@@ -68,18 +86,22 @@ export function powerFactorByInterval(
 export interface PeakDemandPowerFactor {
   intervalStart: string | null;
   kw: number;
-  kva: number;
+  /** Apparent power at the peak; null when not determinable (no reactive data). */
+  kva: number | null;
   powerFactor: number | null;
+  reactiveDataAvailable: boolean;
 }
 
 /**
- * Power factor at the demand-setting interval (the max-kVA interval). This is the PF that
- * matters for a kVA demand charge — not the period average. Real and reactive energy are
- * summed per interval, then apparent power picks the peak.
+ * Power factor and kVA at the demand-setting interval. Without reactive data, kVA and PF are
+ * NOT determinable (we never assume unity) — they return null and reactiveDataAvailable=false,
+ * and the caller must either suppress kVA-based analysis or use an explicit assumed PF.
+ * The peak is chosen on kW when reactive is absent (so we still report when demand peaks).
  */
 export function powerFactorAtPeakDemand(
   readings: ReadonlyArray<AnalyticsReading>,
 ): PeakDemandPowerFactor {
+  const reactiveAvailable = hasReactiveData(readings);
   const byInterval = new Map<string, { real: number; reactive: number; length: number }>();
   for (const r of readings) {
     const kind = channelKind(r.channel);
@@ -90,13 +112,27 @@ export function powerFactorAtPeakDemand(
     byInterval.set(r.intervalStart, slot);
   }
 
-  let best: PeakDemandPowerFactor = { intervalStart: null, kw: 0, kva: 0, powerFactor: null };
+  let bestKw = 0;
+  let best: PeakDemandPowerFactor = {
+    intervalStart: null, kw: 0, kva: null, powerFactor: null, reactiveDataAvailable: reactiveAvailable,
+  };
   for (const [intervalStart, { real, reactive, length }] of byInterval) {
     const kw = intervalPowerKw(real, length);
-    const kvar = intervalPowerKw(reactive, length);
-    const kva = Math.sqrt(kw * kw + kvar * kvar);
-    if (kva > best.kva) {
-      best = { intervalStart, kw, kva, powerFactor: kva === 0 ? null : kw / kva };
+    // Pick the demand-setting interval by kVA when reactive exists, else by kW.
+    const rank = reactiveAvailable
+      ? Math.sqrt(kw * kw + intervalPowerKw(reactive, length) ** 2)
+      : kw;
+    if (rank > bestKw) {
+      bestKw = rank;
+      const kvar = intervalPowerKw(reactive, length);
+      const kva = reactiveAvailable ? Math.sqrt(kw * kw + kvar * kvar) : null;
+      best = {
+        intervalStart,
+        kw,
+        kva,
+        powerFactor: reactiveAvailable && kva && kva > 0 ? kw / kva : null,
+        reactiveDataAvailable: reactiveAvailable,
+      };
     }
   }
   return best;

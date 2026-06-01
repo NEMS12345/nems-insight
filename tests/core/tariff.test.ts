@@ -52,7 +52,7 @@ describe("computeCost", () => {
     name: "Test",
     network: "Energex",
     currency: "AUD",
-    hasEstimatedCharges: false,
+    voltageClass: "LV", hasEstimatedCharges: false,
     periods: {
       peak: { dayTypes: ["weekday"], ranges: [{ startMin: 1020, endMin: 1200 }] },
       offpeak: {
@@ -123,7 +123,7 @@ describe("kVA demand and monthly fixed charges", () => {
     name: "kVA test",
     network: "Energex",
     currency: "AUD",
-    hasEstimatedCharges: false,
+    voltageClass: "LV", hasEstimatedCharges: false,
     periods: {
       peak: { dayTypes: ["weekday"], ranges: [{ startMin: 1020, endMin: 1200 }] },
       offpeak: { dayTypes: [], ranges: [] },
@@ -161,7 +161,7 @@ describe("loss factors", () => {
     name: "loss test",
     network: "Energex",
     currency: "AUD",
-    hasEstimatedCharges: false,
+    voltageClass: "LV", hasEstimatedCharges: false,
     periods: {
       peak: { dayTypes: ["weekday"], ranges: [{ startMin: 1020, endMin: 1200 }] },
       offpeak: { dayTypes: [], ranges: [] },

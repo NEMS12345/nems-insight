@@ -22,6 +22,8 @@ export const ENERGEX_7200: Tariff = {
   name: "Energex 7200 (SAC Large TOU)",
   network: "Energex",
   currency: "AUD",
+  voltageClass: "LV",
+  eligibility: { minAnnualMwh: 100 },
   hasEstimatedCharges: false,
   periods: ENERGEX_7200_PERIODS,
   charges: [
@@ -46,6 +48,7 @@ export const ENERGEX_7400: Tariff = {
   name: "Energex 7400 (11kV TOU Demand)",
   network: "Energex",
   currency: "AUD",
+  voltageClass: "HV",
   hasEstimatedCharges: false,
   periods: ENERGEX_7400_PERIODS,
   charges: [

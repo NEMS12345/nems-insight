@@ -49,6 +49,8 @@ export interface NewMeteringPoint {
   tariffCode?: string;
   mlf?: number;
   dlf?: number;
+  connectionVoltage?: "LV" | "HV";
+  assumedPf?: number;
 }
 
 export async function createMeteringPoint(
@@ -65,6 +67,8 @@ export async function createMeteringPoint(
       tariff_code: input.tariffCode || null,
       mlf: input.mlf ?? null,
       dlf: input.dlf ?? null,
+      connection_voltage: input.connectionVoltage || null,
+      assumed_pf: input.assumedPf ?? null,
       meter_type: "nmi_parent",
     })
     .select(COLS)

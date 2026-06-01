@@ -55,6 +55,44 @@ export function benchmarkRetailEnergyBand(
   return { low: mid * (1 - bandPct), mid, high: mid * (1 + bandPct) };
 }
 
+export type RetailVerdict =
+  | "below-market"
+  | "in-line"
+  | "above-market";
+
+export interface RetailAssessment {
+  verdict: RetailVerdict;
+  /** True when the all-in variable rate is below the captured wholesale forward — explained,
+   *  not presented as a contradiction (usually a legacy contract struck at lower forwards). */
+  belowForward: boolean;
+  /** Annual re-tender opportunity ($) only when above the band's top; else 0. */
+  annualOpportunity: number;
+}
+
+/**
+ * Derive the verdict from the arithmetic so the label can never contradict the numbers.
+ * @param futuresPerKwh the captured wholesale forward as $/kWh (futures $/MWh ÷ 1000).
+ */
+export function assessRetail(
+  actualPerKwh: number,
+  band: BenchmarkBand,
+  annualKwh: number,
+  futuresPerKwh: number,
+): RetailAssessment {
+  const verdict: RetailVerdict =
+    actualPerKwh < band.low
+      ? "below-market"
+      : actualPerKwh > band.high
+        ? "above-market"
+        : "in-line";
+  return {
+    verdict,
+    belowForward: actualPerKwh < futuresPerKwh,
+    annualOpportunity:
+      verdict === "above-market" ? (actualPerKwh - band.high) * annualKwh : 0,
+  };
+}
+
 export interface RetailComparison {
   actualPerKwh: number;
   benchmarkPerKwh: number;

@@ -106,9 +106,10 @@ describe("powerFactor", () => {
     expect(res.reactiveKvarh).toBe(4);
     expect(res.powerFactor).toBeCloseTo(0.6); // 3 / sqrt(3^2+4^2) = 3/5
   });
-  it("returns power factor 1 when there is no reactive data", () => {
+  it("returns null (not unity) when there is no reactive data", () => {
     const res = periodPowerFactor([r("E1", "2024-01-01T00:00:00+10:00", 5)]);
-    expect(res.powerFactor).toBe(1);
+    expect(res.powerFactor).toBeNull();
+    expect(res.reactiveDataAvailable).toBe(false);
   });
   it("returns null when there is no energy at all", () => {
     expect(periodPowerFactor([]).powerFactor).toBeNull();

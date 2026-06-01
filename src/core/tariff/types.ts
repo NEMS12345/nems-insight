@@ -71,6 +71,19 @@ export type LossFactor = "MLF" | "DLF";
 export interface LossFactors {
   mlf?: number; // marginal loss factor (default 1)
   dlf?: number; // distribution loss factor (default 1)
+  /**
+   * Assumed power factor for deriving kVA demand when the dataset has NO reactive channel.
+   * If absent and a kVA-demand charge is hit without reactive data, kVA falls back to kW
+   * (understated) — the report must flag this rather than present it as fact.
+   */
+  assumedPf?: number;
+}
+
+export type VoltageClass = "LV" | "HV";
+
+export interface TariffEligibility {
+  minAnnualMwh?: number;
+  maxAnnualMwh?: number;
 }
 
 export interface Tariff {
@@ -78,6 +91,10 @@ export interface Tariff {
   name: string;
   network: string; // DNSP, e.g. "Energex"
   currency: "AUD";
+  /** Connection voltage this tariff requires — a physical eligibility constraint. */
+  voltageClass: VoltageClass;
+  /** Consumption thresholds for eligibility, if any. */
+  eligibility?: TariffEligibility;
   /** True if some charges are estimates (e.g. retail) rather than published network rates. */
   hasEstimatedCharges: boolean;
   periods: PeriodDefinition;

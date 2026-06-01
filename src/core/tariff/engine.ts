@@ -62,9 +62,11 @@ export function computeCost(
 ): CostResult {
   const mlf = losses.mlf ?? 1;
   const dlf = losses.dlf ?? 1;
+  const assumedPf = losses.assumedPf;
   const energyByPeriod = emptyByPeriod();
   const days = new Set<string>();
   const months = new Set<string>();
+  let hasReactive = false;
 
   // Sum consumption (E) and reactive (Q) energy per interval; export is ignored for cost.
   const perInterval = new Map<string, { kwh: number; kvarh: number; length: number }>();
@@ -77,7 +79,10 @@ export function computeCost(
       perInterval.get(r.intervalStart) ??
       { kwh: 0, kvarh: 0, length: r.intervalLength };
     if (kind === "consumption") slot.kwh += r.value;
-    else slot.kvarh += r.value;
+    else {
+      slot.kvarh += r.value;
+      hasReactive = true;
+    }
     perInterval.set(r.intervalStart, slot);
   }
 
@@ -86,14 +91,14 @@ export function computeCost(
     const period = classifyPeriod(intervalStart, tariff.periods);
     energyByPeriod[period] += kwh;
     const kw = intervalPowerKw(kwh, length);
-    const kvar = intervalPowerKw(kvarh, length);
-    demand.push({
-      intervalStart,
-      kw,
-      kva: Math.sqrt(kw * kw + kvar * kvar), // apparent power; == kw when no reactive data
-      period,
-      month: aestYearMonth(intervalStart),
-    });
+    // kVA: from reactive when available; else from an explicit assumed PF; else fall back to
+    // kW (understated — the report flags this rather than presenting it as fact).
+    const kva = hasReactive
+      ? Math.sqrt(kw * kw + intervalPowerKw(kvarh, length) ** 2)
+      : assumedPf != null && assumedPf > 0
+        ? kw / assumedPf
+        : kw;
+    demand.push({ intervalStart, kw, kva, period, month: aestYearMonth(intervalStart) });
   }
 
   const dayCount = days.size;

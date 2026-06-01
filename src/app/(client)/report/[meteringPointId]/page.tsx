@@ -15,6 +15,7 @@ import {
   averageDemandKw,
   loadFactor,
   powerFactorAtPeakDemand,
+  hasReactiveData,
   loadProfileByTimeOfDay,
   dailyConsumption,
   formatMinuteOfDay,
@@ -35,11 +36,12 @@ import {
   retailMarginalPeakRate,
   DEFAULT_RETAIL_PLAN,
   compareTariffs,
+  eligibleTariffs,
   reconcile,
   getTariff,
   marginalEnergyRatePerKwh,
   benchmarkRetailEnergyBand,
-  compareRetailRate,
+  assessRetail,
   powerFactorCorrectionCase,
   demandShaveSaving,
   inWindow,
@@ -101,7 +103,13 @@ export default async function ClientReport({
   const retailPlan = retailPlanRow ?? DEFAULT_RETAIL_PLAN;
 
   const tariff = getTariff(mp.tariffCode ?? "") ?? ENERGEX_7200;
-  const losses: LossFactors = { mlf: mp.mlf ?? undefined, dlf: mp.dlf ?? undefined };
+  const reactiveAvailable = hasReactiveData(readings);
+  const lossesEntered = mp.mlf != null && mp.dlf != null; // Blocker 2
+  const losses: LossFactors = {
+    mlf: mp.mlf ?? undefined,
+    dlf: mp.dlf ?? undefined,
+    assumedPf: mp.assumedPf ?? undefined,
+  };
   const region = site?.state ?? "QLD";
   const marketPrice = await getLatestMarketPrice(region);
   const factorOverride = await getLatestEmissionsFactor(region);
@@ -130,8 +138,13 @@ export default async function ClientReport({
   const mlf = losses.mlf ?? 1;
   const dlf = losses.dlf ?? 1;
 
-  // Tariff comparison.
-  const ranked = compareTariffs(readings, ALL_TARIFFS, losses);
+  // Tariff comparison — restricted to tariffs the NMI is actually eligible for (Blocker 1).
+  const elig = eligibleTariffs(ALL_TARIFFS, {
+    connectionVoltage: mp.connectionVoltage,
+    currentCode: tariff.code,
+    annualMwh: annualKwh / 1000,
+  });
+  const ranked = compareTariffs(readings, elig.tariffs, losses);
   const current = ranked.find((o) => o.tariff.code === tariff.code) ?? ranked[0];
   const cheapest = ranked[0];
   const tariffSavingAnnual = (current.cost.total - cheapest.cost.total) * annualF;
@@ -149,15 +162,22 @@ export default async function ClientReport({
       ? inWindow(peak.at, demandCharge.window)
       : classifyPeriod(peak.at, tariff.periods) === demandCharge.period);
 
-  // Power factor correction (only meaningful on a kVA demand tariff).
-  const pfCase = powerFactorCorrectionCase({
-    peakKw: pfPeak.kw,
-    peakKva: pfPeak.kva,
-    currentPf: pfPeak.powerFactor ?? 1,
-    targetPf: TARGET_PF,
-    demandRatePerKvaMonth: demandRate,
-    kvaBilled,
-  });
+  // Power factor (Blocker 3): a business case needs reactive data OR an explicit assumed PF.
+  // On a kVA tariff with neither, kVA — and any PF case — is suppressed (never unity).
+  const effectivePf = reactiveAvailable ? pfPeak.powerFactor : mp.assumedPf;
+  const pfDeterminable = effectivePf != null;
+  const kvaUndetermined = kvaBilled && !reactiveAvailable && mp.assumedPf == null;
+  const pfCase =
+    kvaBilled && pfDeterminable && pfPeak.kw > 0
+      ? powerFactorCorrectionCase({
+          peakKw: pfPeak.kw,
+          peakKva: pfPeak.kva ?? pfPeak.kw / (effectivePf as number),
+          currentPf: effectivePf as number,
+          targetPf: TARGET_PF,
+          demandRatePerKvaMonth: demandRate,
+          kvaBilled,
+        })
+      : null;
 
   // Solar: value a self-consumed daytime kWh at the avoided network volume + retail stack.
   const avoidedRate =
@@ -179,9 +199,11 @@ export default async function ClientReport({
   const benchmarkBand = marketPrice
     ? benchmarkRetailEnergyBand(marketPrice.futuresPerMwh, { lossUplift: mlf * dlf })
     : null;
-  const retail = benchmarkBand
-    ? compareRetailRate(actualRetailVariableRate, benchmarkBand.mid, annualKwh)
-    : null;
+  // Blocker 4: verdict derived from the numbers, with a below-forward explanation.
+  const retail =
+    benchmarkBand && marketPrice
+      ? assessRetail(actualRetailVariableRate, benchmarkBand, annualKwh, marketPrice.futuresPerMwh / 1000)
+      : null;
 
   // Demand: theoretical in-window shave (presented as a finding, not added to the register
   // total, to avoid double-counting kVA with power-factor correction below).
@@ -216,6 +238,25 @@ export default async function ClientReport({
   const periodStart = daily[0]?.date ?? "—";
   const periodEnd = daily[daily.length - 1]?.date ?? "—";
 
+  // --- Issuability (operator gate): reasons this can't yet go client-facing ---
+  const draftReasons: string[] = [];
+  if (!lossesEntered) {
+    draftReasons.push(
+      "Loss factors not entered — cost model and benchmark exclude losses and understate actual cost. Enter MLF/DLF to issue.",
+    );
+  }
+  if (kvaUndetermined) {
+    draftReasons.push(
+      "kVA-demand tariff but no reactive data and no assumed PF — demand cost can't be determined. Obtain reactive data or set an assumed PF.",
+    );
+  }
+  if (elig.crossVoltageLimited) {
+    draftReasons.push(
+      "Connection voltage not specified — tariff comparison limited to the current voltage class (no cross-voltage alternatives shown).",
+    );
+  }
+  const isDraft = draftReasons.length > 0;
+
   // --- Savings register ---
   const register: SavingsItem[] = [];
   if (avoidableSaving > 0) {
@@ -228,14 +269,14 @@ export default async function ClientReport({
       note: `~${ops.avoidableBaseLoadKw.toFixed(0)} kW avoidable at off-peak; operational (controls/scheduling). Investigate — site confirmation needed.`,
     });
   }
-  if (retail?.aboveBenchmark && benchmarkBand) {
+  if (retail?.verdict === "above-market" && benchmarkBand) {
     register.push({
       measure: "Re-tender retail energy contract",
       annualSavingAud: retail.annualOpportunity,
       indicativeCapexAud: 0,
       paybackYears: 0,
       confidence: conf("medium"),
-      note: `Actual ${(actualRetailVariableRate * 100).toFixed(2)}¢ vs benchmark ${(benchmarkBand.mid * 100).toFixed(2)}¢ /kWh; test in market.`,
+      note: `Actual ${(actualRetailVariableRate * 100).toFixed(2)}¢ vs benchmark top ${(benchmarkBand.high * 100).toFixed(2)}¢ /kWh; test in market.`,
     });
   }
   if (switchWorthwhile) {
@@ -248,7 +289,7 @@ export default async function ClientReport({
       note: "Subject to connection/voltage eligibility and DNSP approval — pursue with retailer/DNSP.",
     });
   }
-  if (pfCase.applicable) {
+  if (pfCase?.applicable) {
     const capex = pfCase.capacitorKvar * CAPACITOR_COST_PER_KVAR;
     register.push({
       measure: "Correct power factor",
@@ -276,7 +317,9 @@ export default async function ClientReport({
     <main className="mx-auto max-w-3xl p-8 text-black">
       <div className="flex items-start justify-between">
         <div>
-          <div className="text-sm text-black/50">Energy review — NEMS Insight</div>
+          <div className="text-sm text-black/50">
+            Energy review — NEMS Insight {isDraft && "· DRAFT (operator only)"}
+          </div>
           <h1 className="text-2xl font-bold">{client?.name ?? "Client"}</h1>
           <div className="text-sm text-black/60">
             {site?.name} · NMI <span className="font-mono">{mp.nmi}</span> · {periodStart} to {periodEnd}
@@ -284,6 +327,17 @@ export default async function ClientReport({
         </div>
         <PrintButton />
       </div>
+
+      {isDraft && (
+        <div className="mt-4 rounded border-2 border-bad/40 bg-bad/5 px-4 py-3 text-sm">
+          <div className="font-semibold text-bad">DRAFT — not for client issue</div>
+          <ul className="mt-1 list-disc pl-5 text-black/75">
+            {draftReasons.map((r, i) => (
+              <li key={i}>{r}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {!marketPrice && (
         <p className="mt-4 rounded border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800 print:hidden">
@@ -337,7 +391,11 @@ export default async function ClientReport({
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <Metric label="Average demand" value={kw(averageDemandKw(readings))} />
             <Metric label="Load factor" value={lf.toFixed(2)} sub={lf < 0.4 ? "peaky" : "flat"} />
-            <Metric label="Power factor (at peak)" value={pfPeak.powerFactor === null ? "—" : pfPeak.powerFactor.toFixed(2)} />
+            <Metric
+              label="Power factor (at peak)"
+              value={pfPeak.reactiveDataAvailable && pfPeak.powerFactor != null ? pfPeak.powerFactor.toFixed(2) : "n/a"}
+              sub={pfPeak.reactiveDataAvailable ? undefined : "no reactive data"}
+            />
             {site?.floorAreaM2 ? (
               <Metric
                 label="Energy intensity"
@@ -417,7 +475,11 @@ export default async function ClientReport({
               ))}
             </tbody>
           </table>
-          <p className="mt-1 text-[11px] text-black/50">Network cost only — retail is unchanged by a network tariff switch.</p>
+          <p className="mt-1 text-[11px] text-black/50">
+            Network cost only — retail is unchanged by a network tariff switch.
+            {elig.crossVoltageLimited &&
+              " Connection voltage not specified — comparison limited to the current voltage class; no cross-voltage alternatives are shown."}
+          </p>
         </Section>
 
         <Section title="Retail contract benchmark">
@@ -426,15 +488,26 @@ export default async function ClientReport({
               <p className="text-sm text-black/80">
                 Your variable retail rate is about <strong>{(actualRetailVariableRate * 100).toFixed(2)}¢/kWh</strong> vs an indicative
                 market benchmark band of <strong>{(benchmarkBand.low * 100).toFixed(2)}–{(benchmarkBand.high * 100).toFixed(2)}¢/kWh</strong>
-                {retail.aboveBenchmark
-                  ? <> — re-tendering could be worth ~<strong>{moneyLabel(retail.annualOpportunity)}/yr</strong> (test in market).</>
-                  : <> — broadly competitive.</>}
+                {retail.verdict === "below-market" && (
+                  <> — <strong className="text-good">below market (favourable)</strong>.</>
+                )}
+                {retail.verdict === "in-line" && <> — <strong>in line with market</strong>.</>}
+                {retail.verdict === "above-market" && (
+                  <> — <strong className="text-bad">above market</strong>; indicative re-tender opportunity ~<strong>{moneyLabel(retail.annualOpportunity)}/yr</strong>.</>
+                )}
               </p>
+              {retail.belowForward && (
+                <p className="mt-1 text-[11px] text-black/60">
+                  Note: the rate sits below the current wholesale forward (${marketPrice.futuresPerMwh.toFixed(2)}/MWh) —
+                  likely a legacy contract struck at lower forwards. Favourable, but confirm the contract end date.
+                </p>
+              )}
               <p className="mt-1 text-[11px] text-black/50">
                 Contestable retail component only (network/metering sit in the tariff check). Built from the ASX {region}
                 futures price ${marketPrice.futuresPerMwh.toFixed(2)}/MWh (captured {marketPrice.capturedOn}) grossed up for
-                losses (MLF×DLF) and load shape, plus LGC/STC environmental, AEMO market fees and retailer margin. A band,
-                not a quote — a real tender depends on credit and term.
+                {lossesEntered ? " losses (MLF×DLF) and" : ""} load shape, plus LGC/STC environmental, AEMO market fees and
+                retailer margin{lossesEntered ? "" : " (losses NOT applied — MLF/DLF not entered)"}. A band, not a quote —
+                a real tender depends on credit and term.
               </p>
             </>
           ) : (
@@ -475,19 +548,43 @@ export default async function ClientReport({
         </Section>
 
         <Section title="Power factor">
-          {pfCase.applicable ? (
+          {!reactiveAvailable && (
             <p className="text-sm text-black/80">
-              Power factor at the demand-setting interval is <strong>{pfPeak.powerFactor?.toFixed(2)}</strong>. Correcting to a
-              target of {TARGET_PF} (up to ~0.98 with automatic correction; unity isn&apos;t worth chasing) would cut chargeable
-              demand from {pfCase.peakKva.toFixed(0)} to {pfCase.correctedKva.toFixed(0)} kVA — about{" "}
-              <strong>{moneyLabel(pfCase.annualSavingAud)}/yr</strong> (≈{pfCase.capacitorKvar.toFixed(0)} kVAr). Indicative,
-              subject to a power-quality study; harmonics may require detuned/filtered banks, which raise the cost.
-            </p>
-          ) : (
-            <p className="text-sm text-black/80">
-              {pfCase.reason ?? "Power factor is healthy; no correction warranted."}
+              <strong>Not available — no reactive (kVAr) data</strong> in this dataset, so power factor and
+              kVA can&apos;t be measured.
+              {kvaBilled
+                ? mp.assumedPf == null
+                  ? " This NMI is on a kVA-demand tariff, so an assumed power factor must be set before kVA-based figures can be issued."
+                  : ` Figures below assume PF = ${mp.assumedPf} (operator-set).`
+                : " This NMI is on a kW-demand tariff, so power factor doesn't affect the demand charge anyway."}
             </p>
           )}
+          {pfCase?.applicable ? (
+            <>
+              <p className="text-sm text-black/80">
+                Power factor {reactiveAvailable ? "at the demand-setting interval" : "(assumed)"} is{" "}
+                <strong>{(effectivePf as number).toFixed(2)}</strong>. Correcting to a target of {TARGET_PF}
+                {" "}(up to ~0.98 with automatic correction; unity isn&apos;t worth chasing) would cut chargeable demand from{" "}
+                {pfCase.peakKva.toFixed(0)} to {pfCase.correctedKva.toFixed(0)} kVA — about{" "}
+                <strong>{moneyLabel(pfCase.annualSavingAud)}/yr</strong> (≈{pfCase.capacitorKvar.toFixed(0)} kVAr). Indicative,
+                subject to a power-quality study; harmonics may require detuned/filtered banks.
+              </p>
+              {!reactiveAvailable && (
+                <p className="mt-1 text-[11px] text-black/60">
+                  Assumes PF = {mp.assumedPf}. Sensitivity — saving at PF 0.85 / 0.90 / 0.95:{" "}
+                  {[0.85, 0.9, 0.95]
+                    .map((tp) => {
+                      const correctedKva = pfPeak.kw / TARGET_PF;
+                      const nowKva = pfPeak.kw / tp;
+                      return moneyLabel(Math.max(0, nowKva - correctedKva) * demandRate * 12);
+                    })
+                    .join(" / ")}.
+                </p>
+              )}
+            </>
+          ) : reactiveAvailable ? (
+            <p className="text-sm text-black/80">Power factor is healthy; no correction warranted.</p>
+          ) : null}
         </Section>
 
         <Section title="Solar opportunity">
@@ -524,7 +621,13 @@ export default async function ClientReport({
         <Section title="Basis & assumptions">
           <ul className="list-disc pl-5 text-xs text-black/60">
             <li>Costs modelled from interval meter data on {tariff.name} (network published; retail per the client&apos;s Origin invoice), ex-GST. Annualised from {modelled.days} days where shown as /yr.</li>
-            <li>Loss factors: MLF {losses.mlf ?? "—"}, DLF {losses.dlf ?? "—"}. Retail energy peak window assumed 7am–9pm weekdays.</li>
+            <li>
+              Loss factors:{" "}
+              {lossesEntered
+                ? `MLF ${mp.mlf}, DLF ${mp.dlf} (applied to energy/environmental/market).`
+                : "not entered — losses are NOT applied; the cost model and benchmark exclude losses and understate actual cost."}{" "}
+              Retail energy peak window assumed 7am–9pm weekdays.
+            </li>
             <li>{readings.length.toLocaleString("en-AU")} interval readings; {pct(summary.estimatedFraction)} estimated/substituted. Savings are indicative, not quotes; capex and PF/solar sizing need site assessment.</li>
           </ul>
         </Section>

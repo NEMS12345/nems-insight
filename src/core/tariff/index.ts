@@ -8,4 +8,5 @@ export * from "@/core/tariff/retail";
 export * from "@/core/tariff/reconciliation";
 export * from "@/core/tariff/benchmark";
 export * from "@/core/tariff/demand";
+export * from "@/core/tariff/eligibility";
 export { powerFactorCorrectionCase, type PowerFactorCase } from "@/core/tariff/powerFactor";

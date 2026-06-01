@@ -85,7 +85,11 @@ export default async function MeteringPointPage({
 
   // Model on the tariff this NMI is billed on (falls back to 7200), with its loss factors.
   const tariff = getTariff(mp.tariffCode ?? "") ?? ENERGEX_7200;
-  const losses = { mlf: mp.mlf ?? undefined, dlf: mp.dlf ?? undefined };
+  const losses = {
+    mlf: mp.mlf ?? undefined,
+    dlf: mp.dlf ?? undefined,
+    assumedPf: mp.assumedPf ?? undefined,
+  };
   const modelled = computeFullCost(readings, tariff, retailPlan, losses);
 
   // Per-bill reconciliation: cost the readings within each bill's period on its tariff
