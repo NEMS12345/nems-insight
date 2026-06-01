@@ -20,6 +20,8 @@ export interface SolarAssumptions {
   inverterReplacementYear: number;
   /** Inverter replacement cost as a fraction of install cost. */
   inverterReplacementFraction: number;
+  /** Feed-in tariff for exported kWh, $/kWh (C&I FiT is typically low). */
+  feedInTariffPerKwh: number;
 }
 
 export const DEFAULT_SOLAR_ASSUMPTIONS: SolarAssumptions = {
@@ -32,6 +34,7 @@ export const DEFAULT_SOLAR_ASSUMPTIONS: SolarAssumptions = {
   systemLifeYears: 25,
   inverterReplacementYear: 11,
   inverterReplacementFraction: 0.15,
+  feedInTariffPerKwh: 0.05,
 };
 
 export interface SolarOption {
@@ -100,13 +103,15 @@ function evaluateSize(
   }
   const scale = 365 / (dayCount || 1);
   const annualSelf = self * scale;
-  const annualSaving = annualSelf * avoidedRatePerKwh;
+  const annualExport = exp * scale;
+  // Self-consumed kWh avoids the full volumetric stack; exported kWh earns only the FiT.
+  const annualSaving = annualSelf * avoidedRatePerKwh + annualExport * a.feedInTariffPerKwh;
   const cost = kwp * a.installCostPerWatt * 1000;
   return {
     kwp,
     annualGenerationKwh: gen * scale,
     annualSelfKwh: annualSelf,
-    annualExportKwh: exp * scale,
+    annualExportKwh: annualExport,
     annualSavingAud: annualSaving,
     paybackYears: annualSaving > 0 ? cost / annualSaving : null,
   };

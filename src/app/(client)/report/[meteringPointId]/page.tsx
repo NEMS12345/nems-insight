@@ -50,7 +50,7 @@ import {
   ENERGEX_7400,
   type LossFactors,
 } from "@/core/tariff";
-import { sortSavings, totalAnnualSaving, adjustConfidence, type SavingsItem } from "@/core/report";
+import { sortSavings, totalAnnualSaving, adjustConfidence, preIssueChecks, type SavingsItem } from "@/core/report";
 import { BarChart } from "@/components/BarChart";
 import { PrintButton } from "@/components/PrintButton";
 import { moneyLabel, energyLabel } from "@/lib/format";
@@ -166,7 +166,6 @@ export default async function ClientReport({
   // On a kVA tariff with neither, kVA — and any PF case — is suppressed (never unity).
   const effectivePf = reactiveAvailable ? pfPeak.powerFactor : mp.assumedPf;
   const pfDeterminable = effectivePf != null;
-  const kvaUndetermined = kvaBilled && !reactiveAvailable && mp.assumedPf == null;
   const pfCase =
     kvaBilled && pfDeterminable && pfPeak.kw > 0
       ? powerFactorCorrectionCase({
@@ -238,24 +237,20 @@ export default async function ClientReport({
   const periodStart = daily[0]?.date ?? "—";
   const periodEnd = daily[daily.length - 1]?.date ?? "—";
 
-  // --- Issuability (operator gate): reasons this can't yet go client-facing ---
-  const draftReasons: string[] = [];
-  if (!lossesEntered) {
-    draftReasons.push(
-      "Loss factors not entered — cost model and benchmark exclude losses and understate actual cost. Enter MLF/DLF to issue.",
-    );
-  }
-  if (kvaUndetermined) {
-    draftReasons.push(
-      "kVA-demand tariff but no reactive data and no assumed PF — demand cost can't be determined. Obtain reactive data or set an assumed PF.",
-    );
-  }
-  if (elig.crossVoltageLimited) {
-    draftReasons.push(
-      "Connection voltage not specified — tariff comparison limited to the current voltage class (no cross-voltage alternatives shown).",
-    );
-  }
-  const isDraft = draftReasons.length > 0;
+  // --- Issuability (operator gate): completeness + plausibility checks ---
+  const issueChecks = preIssueChecks({
+    lossesEntered,
+    connectionVoltageSet: mp.connectionVoltage != null,
+    retailPlanCustom: retailPlanRow != null,
+    retailDailyChargeTotal: retailPlan.supplyPerDay + retailPlan.meteringPerDay,
+    assumedPf: mp.assumedPf,
+    hasReactive: reactiveAvailable,
+    kvaBilled,
+    peakKw: peak.kw,
+  });
+  const blocks = issueChecks.filter((c) => c.level === "block");
+  const flags = issueChecks.filter((c) => c.level === "flag");
+  const isDraft = blocks.length > 0;
 
   // --- Savings register ---
   const register: SavingsItem[] = [];
@@ -329,12 +324,27 @@ export default async function ClientReport({
         <PrintButton />
       </div>
 
-      {isDraft && (
-        <div className="mt-4 rounded border-2 border-bad/40 bg-bad/5 px-4 py-3 text-sm">
-          <div className="font-semibold text-bad">DRAFT — not for client issue</div>
+      {issueChecks.length > 0 && (
+        <div
+          className={`mt-4 rounded border-2 px-4 py-3 text-sm ${
+            isDraft ? "border-bad/40 bg-bad/5" : "border-warn/40 bg-warn/5"
+          }`}
+        >
+          <div className={`font-semibold ${isDraft ? "text-bad" : "text-warn"}`}>
+            {isDraft
+              ? "DRAFT — not for client issue. Resolve the blockers below:"
+              : "Pre-issue checks — review before issuing:"}
+          </div>
           <ul className="mt-1 list-disc pl-5 text-foreground/75">
-            {draftReasons.map((r, i) => (
-              <li key={i}>{r}</li>
+            {blocks.map((c, i) => (
+              <li key={`b${i}`}>
+                <span className="font-medium text-bad">Blocker:</span> {c.message}
+              </li>
+            ))}
+            {flags.map((c, i) => (
+              <li key={`f${i}`}>
+                <span className="font-medium text-warn">Flag:</span> {c.message}
+              </li>
             ))}
           </ul>
         </div>
@@ -589,18 +599,43 @@ export default async function ClientReport({
         </Section>
 
         <Section title="Solar opportunity">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <Metric label="Best payback" value={`${solar.recommendedKwp} kWp`} sub={solar.simplePaybackYears ? `${solar.simplePaybackYears.toFixed(1)}y · ${pct(solar.selfConsumptionPct)} self-used` : "low export"} />
-            <Metric label="Best lifetime value" value={`${solar.maxValue.kwp} kWp`} sub={`${moneyLabel(solar.maxValue.lifetimeSavingAud)} over ${solar.assumptions.systemLifeYears}y`} />
-            <Metric label="Annual saving" value={moneyLabel(solar.annualSavingAud)} sub={`max-value: ${moneyLabel(solar.maxValue.annualSavingAud)}/yr`} />
-            <Metric label="CO₂ avoided" value={`~${solarCo2.toFixed(0)} t/yr`} sub={`${energyLabel(solar.annualGenerationKwh)} generated`} />
-          </div>
-          <p className="mt-3 text-xs text-foreground/50">
-            Two sizes: the min-payback system (cash-constrained) and the max-lifetime-value system (asset owner) —
-            choose on capital appetite. Indicative only. {solar.assumptions.yieldKwhPerKwpYear} kWh/kWp/yr (SE QLD),
-            ~${solar.assumptions.installCostPerWatt.toFixed(2)}/W, {(solar.assumptions.degradationPerYear * 100).toFixed(1)}%/yr
-            degradation, inverter replacement ~yr {solar.assumptions.inverterReplacementYear}, self-consumed kWh valued at
-            {" "}{moneyLabel(avoidedRate)}/kWh. Roof/space and existing on-site generation to be confirmed.
+          <table className="w-full text-sm">
+            <thead className="text-left text-[11px] uppercase text-foreground/40">
+              <tr>
+                <th className="py-1">Option</th>
+                <th className="py-1 text-right">Size</th>
+                <th className="py-1 text-right">Generation</th>
+                <th className="py-1 text-right">Self-consumed</th>
+                <th className="py-1 text-right">Exported</th>
+                <th className="py-1 text-right">Saving/yr</th>
+                <th className="py-1 text-right">Payback</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {[
+                { label: "Best payback", o: solar as { kwp: number; annualGenerationKwh: number; selfConsumptionPct: number; selfConsumedKwh: number; exportedKwh: number; annualSavingAud: number; simplePaybackYears: number | null } },
+                { label: "Best lifetime value", o: solar.maxValue },
+              ].map(({ label, o }) => (
+                <tr key={label}>
+                  <td className="py-1.5">{label}</td>
+                  <td className="py-1.5 text-right">{o.kwp} kWp</td>
+                  <td className="py-1.5 text-right">{energyLabel(o.annualGenerationKwh)}</td>
+                  <td className="py-1.5 text-right">{pct(o.selfConsumptionPct)} ({energyLabel(o.selfConsumedKwh)})</td>
+                  <td className="py-1.5 text-right">{energyLabel(o.exportedKwh)}</td>
+                  <td className="py-1.5 text-right tabular-nums">{moneyLabel(o.annualSavingAud)}</td>
+                  <td className="py-1.5 text-right">{o.simplePaybackYears ? `${o.simplePaybackYears.toFixed(1)}y` : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-2 text-[11px] text-foreground/50">
+            Min-payback (cash-constrained) vs max-lifetime-value (asset owner) — choose on capital appetite.
+            Self-consumed kWh valued at the avoided volumetric stack {moneyLabel(avoidedRate)}/kWh (time-matched to
+            daytime generation); exported kWh at a feed-in tariff of {moneyLabel(solar.assumptions.feedInTariffPerKwh)}/kWh.
+            {solar.assumptions.yieldKwhPerKwpYear} kWh/kWp/yr (SE QLD), ~${solar.assumptions.installCostPerWatt.toFixed(2)}/W,
+            {(solar.assumptions.degradationPerYear * 100).toFixed(1)}%/yr degradation, inverter replacement ~yr
+            {" "}{solar.assumptions.inverterReplacementYear}. ~{solarCo2.toFixed(0)} t CO₂/yr avoided. Roof/space and existing
+            on-site generation to be confirmed.
           </p>
         </Section>
 
