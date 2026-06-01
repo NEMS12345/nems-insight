@@ -17,9 +17,10 @@ export default async function OperatorLayout({
 
   return (
     <div className="min-h-screen bg-bg">
+      <div className="solar-flare-bar h-1" />
       <header className="flex items-center justify-between bg-sidebar px-6 py-3 text-white">
         <Link href="/" className="font-semibold tracking-tight">
-          NEMS <span className="text-accent">Insight</span>
+          NEMS Insight
         </Link>
         <div className="flex items-center gap-4 text-sm text-white/60">
           <span>{ctx.email}</span>

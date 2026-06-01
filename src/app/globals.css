@@ -1,61 +1,79 @@
 @import "tailwindcss";
 
 :root {
-  /* Brand */
-  --accent: #2357d7;
-  --accent-hover: #1c47b3;
+  /* Active Utilities brand */
+  --forest: #005555; /* primary text / headings — dominant */
+  --jade: #008c8c; /* accents, icons, highlights */
+  --sand: #e8e4d2; /* backgrounds */
+
+  /* Accent (Jade) */
+  --accent: #008c8c;
+  --accent-hover: #006e6e;
 
   /* Surfaces */
-  --bg: #f8fafc;
+  --bg: #e8e4d2; /* sand */
   --surface: #ffffff;
-  --border: #e2e8f0;
-  --sidebar-bg: #0f172a;
+  --border: #d6d1bd; /* darker sand hairline */
+  --sidebar-bg: #005555; /* forest-green nav rail */
 
-  /* Text */
-  --text: #0f172a;
-  --text-muted: #64748b;
-  --text-faint: #94a3b8;
+  /* Text (Forest Green on light/sand; white on dark/green) */
+  --text: #005555;
+  --text-muted: #3f6b6b;
+  --text-faint: #7a9a9a;
 
-  /* Semantic / status */
-  --good: #059669;
-  --warn: #d97706;
-  --bad: #e11d48;
+  /* Semantic / status (functional indicators) */
+  --good: #047857;
+  --warn: #b45309;
+  --bad: #c2410c;
 
   /* Data-quality flags */
-  --q-actual: #059669;
-  --q-substitute: #d97706;
-  --q-estimate: #dc2626;
+  --q-actual: #047857;
+  --q-substitute: #b45309;
+  --q-estimate: #c2410c;
 
   /* Chart series */
-  --chart-1: #2357d7;
-  --chart-2: #0ea5e9;
-  --chart-3: #94a3b8;
+  --chart-1: #008c8c; /* jade */
+  --chart-2: #005555; /* forest */
+  --chart-3: #7a9a9a; /* faint */
+
+  /* Solar Flare — decorative/brand use only, sparingly */
+  --solar-flare: linear-gradient(90deg, #ff6400 0%, #ff9b00 55%, #ffffcd 100%);
 
   /* Back-compat aliases used across the app */
-  --background: var(--bg);
-  --foreground: var(--text);
+  --background: var(--sand);
+  --foreground: var(--forest);
 }
 
 @theme inline {
-  --color-background: var(--bg);
-  --color-foreground: var(--text);
-  --color-bg: var(--bg);
+  --color-background: var(--sand);
+  --color-foreground: var(--forest);
+  --color-bg: var(--sand);
   --color-surface: var(--surface);
   --color-border: var(--border);
   --color-sidebar: var(--sidebar-bg);
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
+  --color-forest: var(--forest);
+  --color-jade: var(--jade);
+  --color-sand: var(--sand);
   --color-muted: var(--text-muted);
   --color-faint: var(--text-faint);
   --color-good: var(--good);
   --color-warn: var(--warn);
   --color-bad: var(--bad);
-  --font-sans: var(--font-geist-sans);
+  /* Arbeit is the brand font; add the licensed font files via @font-face to render it
+     exactly. Falls back to the bundled Geist / system sans until then. */
+  --font-sans: "Arbeit", var(--font-geist-sans), system-ui, sans-serif;
   --font-mono: var(--font-geist-mono);
 }
 
 body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  background: var(--sand);
+  color: var(--forest);
+  font-family: "Arbeit", var(--font-geist-sans), system-ui, sans-serif;
+}
+
+/* Solar Flare decorative strip (brand element). */
+.solar-flare-bar {
+  background: var(--solar-flare);
 }

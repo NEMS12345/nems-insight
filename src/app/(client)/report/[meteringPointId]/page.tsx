@@ -77,9 +77,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Metric({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <div className="rounded border border-border p-3">
-      <div className="text-[11px] uppercase tracking-wide text-black/50">{label}</div>
+      <div className="text-[11px] uppercase tracking-wide text-foreground/50">{label}</div>
       <div className="text-xl font-semibold">{value}</div>
-      {sub && <div className="text-[11px] text-black/50">{sub}</div>}
+      {sub && <div className="text-[11px] text-foreground/50">{sub}</div>}
     </div>
   );
 }
@@ -314,14 +314,15 @@ export default async function ClientReport({
   const totalSaving = totalAnnualSaving(register);
 
   return (
-    <main className="mx-auto max-w-3xl p-8 text-black">
+    <main className="mx-auto max-w-3xl p-8 text-foreground">
+      <div className="solar-flare-bar mb-6 h-1.5 rounded" />
       <div className="flex items-start justify-between">
         <div>
-          <div className="text-sm text-black/50">
+          <div className="text-sm text-foreground/50">
             Energy review — NEMS Insight {isDraft && "· DRAFT (operator only)"}
           </div>
           <h1 className="text-2xl font-bold">{client?.name ?? "Client"}</h1>
-          <div className="text-sm text-black/60">
+          <div className="text-sm text-foreground/60">
             {site?.name} · NMI <span className="font-mono">{mp.nmi}</span> · {periodStart} to {periodEnd}
           </div>
         </div>
@@ -331,7 +332,7 @@ export default async function ClientReport({
       {isDraft && (
         <div className="mt-4 rounded border-2 border-bad/40 bg-bad/5 px-4 py-3 text-sm">
           <div className="font-semibold text-bad">DRAFT — not for client issue</div>
-          <ul className="mt-1 list-disc pl-5 text-black/75">
+          <ul className="mt-1 list-disc pl-5 text-foreground/75">
             {draftReasons.map((r, i) => (
               <li key={i}>{r}</li>
             ))}
@@ -362,20 +363,20 @@ export default async function ClientReport({
             <Metric label="Peak demand" value={kw(peak.kw)} />
             <Metric label="Identified savings" value={`${moneyLabel(totalSaving)}/yr`} />
           </div>
-          <p className="mt-2 text-[11px] text-black/50">
+          <p className="mt-2 text-[11px] text-foreground/50">
             Data window: {win.firstDate} to {win.lastDate} ({win.days} days, {win.months.length} months).
             Suggested sequence: action low/no-capex operational and tariff/retail items first (0–30 days),
             then power factor and demand (30–60), then solar (60–90). Re-baseline after implementation to verify (M&V).
           </p>
           {rankedRegister.length > 0 && (
             <table className="mt-4 w-full text-sm">
-              <thead className="text-left text-[11px] uppercase text-black/40">
+              <thead className="text-left text-[11px] uppercase text-foreground/40">
                 <tr><th className="py-1">Measure</th><th className="py-1 text-right">Saving/yr</th><th className="py-1 text-right">Capex</th><th className="py-1 text-right">Payback</th><th className="py-1 text-right">Confidence</th></tr>
               </thead>
               <tbody className="divide-y divide-black/5">
                 {rankedRegister.map((s) => (
                   <tr key={s.measure}>
-                    <td className="py-1.5">{s.measure}{s.note && <div className="text-[11px] text-black/50">{s.note}</div>}</td>
+                    <td className="py-1.5">{s.measure}{s.note && <div className="text-[11px] text-foreground/50">{s.note}</div>}</td>
                     <td className="py-1.5 text-right tabular-nums">{moneyLabel(s.annualSavingAud)}</td>
                     <td className="py-1.5 text-right tabular-nums">{s.indicativeCapexAud ? moneyLabel(s.indicativeCapexAud) : "—"}</td>
                     <td className="py-1.5 text-right tabular-nums">{s.paybackYears ? `${s.paybackYears.toFixed(1)}y` : "—"}</td>
@@ -406,7 +407,7 @@ export default async function ClientReport({
               <Metric label="Estimated data" value={pct(summary.estimatedFraction)} />
             )}
           </div>
-          <div className="mt-4 text-xs text-black/50">Average daily load profile (kW by time of day)</div>
+          <div className="mt-4 text-xs text-foreground/50">Average daily load profile (kW by time of day)</div>
           <BarChart unit="kW" data={profile.map((p) => ({ label: formatMinuteOfDay(p.minuteOfDay), value: p.avgKw }))} />
         </Section>
 
@@ -417,7 +418,7 @@ export default async function ClientReport({
             <Metric label="Out-of-hours energy" value={pct(ops.outOfHoursFraction)} />
             <Metric label="Base-load trend" value={ops.baseLoadCreep === null ? "—" : pct(ops.baseLoadCreep)} sub="first→last month" />
           </div>
-          <p className="mt-2 text-xs text-black/60">
+          <p className="mt-2 text-xs text-foreground/60">
             Only the <em>avoidable</em> portion is dollarised — observed overnight load minus an assumed
             essential floor (refrigeration/servers/security). Conservative and to be confirmed on site;
             valued at the off-peak rate. Standing load and weekend running are usually the cheapest savings
@@ -430,12 +431,12 @@ export default async function ClientReport({
             <tbody className="divide-y divide-black/5">
               {modelled.lines.map((l) => (
                 <tr key={l.label}>
-                  <td className="py-1.5">{l.label} <span className="text-[10px] uppercase text-black/40">{l.category}</span></td>
+                  <td className="py-1.5">{l.label} <span className="text-[10px] uppercase text-foreground/40">{l.category}</span></td>
                   <td className="py-1.5 text-right tabular-nums">{moneyLabel(l.amount)}</td>
                 </tr>
               ))}
             </tbody>
-            <tfoot className="border-t border-black/20 font-medium">
+            <tfoot className="border-t border-border font-medium">
               <tr><td className="py-2">Network {moneyLabel(modelled.networkTotal)} · Retail {moneyLabel(modelled.retailTotal)} (period)</td><td className="py-2 text-right tabular-nums">{moneyLabel(modelled.total)}</td></tr>
             </tfoot>
           </table>
@@ -459,7 +460,7 @@ export default async function ClientReport({
         )}
 
         <Section title="Network tariff check">
-          <p className="text-sm text-black/80">
+          <p className="text-sm text-foreground/80">
             Modelled on <strong>{tariff.name}</strong>.
             {switchWorthwhile
               ? <> On this load, <strong>{cheapest.tariff.name}</strong> would cost about <strong>{moneyLabel(tariffSavingAnnual)}/yr less</strong> — review subject to connection/voltage eligibility and DNSP approval.</>
@@ -475,7 +476,7 @@ export default async function ClientReport({
               ))}
             </tbody>
           </table>
-          <p className="mt-1 text-[11px] text-black/50">
+          <p className="mt-1 text-[11px] text-foreground/50">
             Network cost only — retail is unchanged by a network tariff switch.
             {elig.crossVoltageLimited &&
               " Connection voltage not specified — comparison limited to the current voltage class; no cross-voltage alternatives are shown."}
@@ -485,7 +486,7 @@ export default async function ClientReport({
         <Section title="Retail contract benchmark">
           {marketPrice && retail && benchmarkBand ? (
             <>
-              <p className="text-sm text-black/80">
+              <p className="text-sm text-foreground/80">
                 Your variable retail rate is about <strong>{(actualRetailVariableRate * 100).toFixed(2)}¢/kWh</strong> vs an indicative
                 market benchmark band of <strong>{(benchmarkBand.low * 100).toFixed(2)}–{(benchmarkBand.high * 100).toFixed(2)}¢/kWh</strong>
                 {retail.verdict === "below-market" && (
@@ -497,12 +498,12 @@ export default async function ClientReport({
                 )}
               </p>
               {retail.belowForward && (
-                <p className="mt-1 text-[11px] text-black/60">
+                <p className="mt-1 text-[11px] text-foreground/60">
                   Note: the rate sits below the current wholesale forward (${marketPrice.futuresPerMwh.toFixed(2)}/MWh) —
                   likely a legacy contract struck at lower forwards. Favourable, but confirm the contract end date.
                 </p>
               )}
-              <p className="mt-1 text-[11px] text-black/50">
+              <p className="mt-1 text-[11px] text-foreground/50">
                 Contestable retail component only (network/metering sit in the tariff check). Built from the ASX {region}
                 futures price ${marketPrice.futuresPerMwh.toFixed(2)}/MWh (captured {marketPrice.capturedOn}) grossed up for
                 {lossesEntered ? " losses (MLF×DLF) and" : ""} load shape, plus LGC/STC environmental, AEMO market fees and
@@ -519,7 +520,7 @@ export default async function ClientReport({
         </Section>
 
         <Section title="Demand management">
-          <p className="text-sm text-black/80">
+          <p className="text-sm text-foreground/80">
             Peak demand was <strong>{kw(peak.kw)}</strong>{peak.at ? ` at ${peak.at.replace("T", " ").slice(0, 16)}` : ""}.{" "}
             {demandCharge
               ? peakInWindow
@@ -537,7 +538,7 @@ export default async function ClientReport({
               ))}
             </tbody>
           </table>
-          <p className="mt-2 text-xs text-black/60">
+          <p className="mt-2 text-xs text-foreground/60">
             Theoretical headroom from clipping each month&apos;s top in-window interval to the next-highest:
             ~<strong>{moneyLabel(demandShave.theoreticalAnnualSaving)}/yr</strong> ({demandShave.unit}). This is the
             theoretical ceiling, not the achievable saving — that needs site knowledge of what load is movable.
@@ -549,7 +550,7 @@ export default async function ClientReport({
 
         <Section title="Power factor">
           {!reactiveAvailable && (
-            <p className="text-sm text-black/80">
+            <p className="text-sm text-foreground/80">
               <strong>Not available — no reactive (kVAr) data</strong> in this dataset, so power factor and
               kVA can&apos;t be measured.
               {kvaBilled
@@ -561,7 +562,7 @@ export default async function ClientReport({
           )}
           {pfCase?.applicable ? (
             <>
-              <p className="text-sm text-black/80">
+              <p className="text-sm text-foreground/80">
                 Power factor {reactiveAvailable ? "at the demand-setting interval" : "(assumed)"} is{" "}
                 <strong>{(effectivePf as number).toFixed(2)}</strong>. Correcting to a target of {TARGET_PF}
                 {" "}(up to ~0.98 with automatic correction; unity isn&apos;t worth chasing) would cut chargeable demand from{" "}
@@ -570,7 +571,7 @@ export default async function ClientReport({
                 subject to a power-quality study; harmonics may require detuned/filtered banks.
               </p>
               {!reactiveAvailable && (
-                <p className="mt-1 text-[11px] text-black/60">
+                <p className="mt-1 text-[11px] text-foreground/60">
                   Assumes PF = {mp.assumedPf}. Sensitivity — saving at PF 0.85 / 0.90 / 0.95:{" "}
                   {[0.85, 0.9, 0.95]
                     .map((tp) => {
@@ -583,7 +584,7 @@ export default async function ClientReport({
               )}
             </>
           ) : reactiveAvailable ? (
-            <p className="text-sm text-black/80">Power factor is healthy; no correction warranted.</p>
+            <p className="text-sm text-foreground/80">Power factor is healthy; no correction warranted.</p>
           ) : null}
         </Section>
 
@@ -594,7 +595,7 @@ export default async function ClientReport({
             <Metric label="Annual saving" value={moneyLabel(solar.annualSavingAud)} sub={`max-value: ${moneyLabel(solar.maxValue.annualSavingAud)}/yr`} />
             <Metric label="CO₂ avoided" value={`~${solarCo2.toFixed(0)} t/yr`} sub={`${energyLabel(solar.annualGenerationKwh)} generated`} />
           </div>
-          <p className="mt-3 text-xs text-black/50">
+          <p className="mt-3 text-xs text-foreground/50">
             Two sizes: the min-payback system (cash-constrained) and the max-lifetime-value system (asset owner) —
             choose on capital appetite. Indicative only. {solar.assumptions.yieldKwhPerKwpYear} kWh/kWp/yr (SE QLD),
             ~${solar.assumptions.installCostPerWatt.toFixed(2)}/W, {(solar.assumptions.degradationPerYear * 100).toFixed(1)}%/yr
@@ -610,7 +611,7 @@ export default async function ClientReport({
             <Metric label="Scope 3 (T&D + upstream)" value={`${scope3.toFixed(0)} t/yr`} sub={`${ngaScope3Factor(region)} t/MWh`} />
             <Metric label="Solar offset" value={`${solarCo2.toFixed(0)} t/yr`} />
           </div>
-          <p className="mt-2 text-[11px] text-black/50">
+          <p className="mt-2 text-[11px] text-foreground/50">
             Basis: {energyLabel(annualKwh)}/yr, NGA factors ({factorYear}). Electricity Scope 2 (location and market-based)
             and Scope 3 only — other scopes are out of scope for an energy review. Residual-emissions ladder: efficiency →
             on-site solar → PPA/GreenPower → offsets (last resort). Figures are method-stated estimates, not a
@@ -619,7 +620,7 @@ export default async function ClientReport({
         </Section>
 
         <Section title="Basis & assumptions">
-          <ul className="list-disc pl-5 text-xs text-black/60">
+          <ul className="list-disc pl-5 text-xs text-foreground/60">
             <li>Costs modelled from interval meter data on {tariff.name} (network published; retail per the client&apos;s Origin invoice), ex-GST. Annualised from {modelled.days} days where shown as /yr.</li>
             <li>
               Loss factors:{" "}
