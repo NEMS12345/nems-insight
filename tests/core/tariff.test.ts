@@ -156,6 +156,32 @@ describe("kVA demand and monthly fixed charges", () => {
   });
 });
 
+describe("loss factors", () => {
+  const tariff: Tariff = {
+    code: "LF",
+    name: "loss test",
+    network: "Energex",
+    currency: "AUD",
+    hasEstimatedCharges: false,
+    periods: {
+      peak: { dayTypes: ["weekday"], ranges: [{ startMin: 1020, endMin: 1200 }] },
+      offpeak: { dayTypes: [], ranges: [] },
+    },
+    charges: [
+      { kind: "energy", category: "retail", label: "MLF×DLF", period: "all", rate: 0.1, losses: ["MLF", "DLF"] },
+      { kind: "energy", category: "network", label: "no loss", period: "all", rate: 0.1 },
+    ],
+  };
+
+  it("applies only the listed loss factors to each charge", () => {
+    const c = computeCost([e1(MON, "17:00", 10)], tariff, { mlf: 1.01, dlf: 1.04 });
+    expect(c.lines.find((l) => l.label === "MLF×DLF")!.amount).toBeCloseTo(
+      0.1 * 10 * 1.01 * 1.04,
+    );
+    expect(c.lines.find((l) => l.label === "no loss")!.amount).toBeCloseTo(1.0);
+  });
+});
+
 describe("reconcile", () => {
   it("flags match / review / investigate by variance band", () => {
     expect(reconcile(100, 101).status).toBe("match"); // 1%

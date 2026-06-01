@@ -6,10 +6,12 @@ import type {
   TouPeriod,
   CostResult,
   CostLine,
+  LossFactors,
 } from "@/core/tariff/types";
-import { classifyPeriod } from "@/core/tariff/periods";
+import { classifyPeriod, inWindow } from "@/core/tariff/periods";
 
 interface IntervalDemand {
+  intervalStart: string;
   kw: number;
   kva: number;
   period: TouPeriod;
@@ -31,7 +33,10 @@ function emptyByPeriod(): Record<TouPeriod, number> {
 export function computeCost(
   readings: ReadonlyArray<AnalyticsReading>,
   tariff: Tariff,
+  losses: LossFactors = {},
 ): CostResult {
+  const mlf = losses.mlf ?? 1;
+  const dlf = losses.dlf ?? 1;
   const energyByPeriod = emptyByPeriod();
   const days = new Set<string>();
   const months = new Set<string>();
@@ -58,6 +63,7 @@ export function computeCost(
     const kw = intervalPowerKw(kwh, length);
     const kvar = intervalPowerKw(kvarh, length);
     demand.push({
+      intervalStart,
       kw,
       kva: Math.sqrt(kw * kw + kvar * kvar), // apparent power; == kw when no reactive data
       period,
@@ -89,18 +95,29 @@ export function computeCost(
       });
     } else if (charge.kind === "energy") {
       const kwh = charge.period === "all" ? totalEnergy : energyByPeriod[charge.period];
+      const lossMult = (charge.losses ?? []).reduce(
+        (m, lf) => m * (lf === "MLF" ? mlf : dlf),
+        1,
+      );
+      const lossNote =
+        charge.losses && charge.losses.length > 0
+          ? ` × ${charge.losses.join("×")}`
+          : "";
       lines.push({
         label: charge.label,
         category: charge.category,
-        amount: charge.rate * kwh,
-        detail: `${Math.round(kwh).toLocaleString("en-AU")} kWh @ $${charge.rate}/kWh`,
+        amount: charge.rate * kwh * lossMult,
+        detail: `${Math.round(kwh).toLocaleString("en-AU")} kWh @ $${charge.rate}/kWh${lossNote}`,
       });
     } else {
       // demand_monthly: sum each calendar month's maximum in-window demand,
       // measured in kVA (apparent power) or kW (real power) per the charge.
       const monthlyMax = new Map<string, number>();
       for (const d of demand) {
-        if (d.period !== charge.period) continue;
+        const inScope = charge.window
+          ? inWindow(d.intervalStart, charge.window)
+          : d.period === charge.period;
+        if (!inScope) continue;
         const value = charge.unit === "kVA" ? d.kva : d.kw;
         const prev = monthlyMax.get(d.month) ?? 0;
         if (value > prev) monthlyMax.set(d.month, value);

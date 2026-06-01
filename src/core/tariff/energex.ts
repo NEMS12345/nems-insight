@@ -1,4 +1,4 @@
-import type { Tariff, PeriodDefinition } from "@/core/tariff/types";
+import type { Tariff, PeriodDefinition, PeriodWindow } from "@/core/tariff/types";
 
 // Time-of-use windows for Energex Large TOU tariffs (AEST minutes from midnight).
 //   Peak:     5pm–8pm weekdays            -> [1020, 1200)
@@ -107,12 +107,19 @@ export const ENERGEX_7200: Tariff = {
   ],
 };
 
-// Tariff 7400 — Energex 11kV Time of Use Demand (CAC HV). Peak DEMAND window is 9am–9pm
-// weekdays (Tariff Guide); network energy is a flat volume charge (no ToU). offpeak is
-// empty because this tariff has no off-peak demand/energy split.
+// Tariff 7400 — Energex 11kV Time of Use Demand (CAC HV).
+//   Retail energy ToU: peak = 7am–9pm weekdays (assumed Origin window), off-peak otherwise.
+//   Network demand window: 9am–9pm weekdays (Tariff Guide) — set explicitly on the charge.
+//   Network energy is a flat volume charge (no ToU).
+// "offpeak" is empty so the off-peak rate maps to the shoulder (catch-all) period.
 const ENERGEX_7400_PERIODS: PeriodDefinition = {
-  peak: { dayTypes: ["weekday"], ranges: [{ startMin: 9 * 60, endMin: 21 * 60 }] },
+  peak: { dayTypes: ["weekday"], ranges: [{ startMin: 7 * 60, endMin: 21 * 60 }] },
   offpeak: { dayTypes: [], ranges: [] },
+};
+
+const ENERGEX_7400_DEMAND_WINDOW: PeriodWindow = {
+  dayTypes: ["weekday"],
+  ranges: [{ startMin: 9 * 60, endMin: 21 * 60 }],
 };
 
 /**
@@ -125,8 +132,9 @@ const ENERGEX_7400_PERIODS: PeriodDefinition = {
  *      The bill's actual rates are peak 7.2713 ¢ / off-peak 9.3965 ¢, but Origin's TOU
  *      window definitions aren't on the bill, so the peak/off-peak split can't yet be
  *      modelled from intervals.
- *   2. Loss factors (MLF 1.0106 × DLF 1.0439) that the bill applies to energy are NOT yet
- *      applied here, so energy will read ~5.5% under the bill.
+ *   2. Origin's exact peak/off-peak windows aren't on the bill; peak is assumed 7am–9pm
+ *      weekdays. Loss factors (MLF/DLF) are applied explicitly per charge, from the NMI's
+ *      values passed to the engine (the bill used MLF 1.0106 × DLF 1.0439).
  */
 export const ENERGEX_7400: Tariff = {
   code: "7400",
@@ -136,19 +144,26 @@ export const ENERGEX_7400: Tariff = {
   hasEstimatedCharges: true,
   periods: ENERGEX_7400_PERIODS,
   charges: [
-    // ---- Network (Energex 7400, from the bill, ex-GST) ----
+    // ---- Network (Energex 7400, from the bill, ex-GST; raw rates) ----
     { kind: "fixed_daily", category: "network", label: "Network access (DUOS)", ratePerDay: 22.306 },
     { kind: "fixed_daily", category: "network", label: "Jurisdictional scheme (fixed)", ratePerDay: 0.573 },
     { kind: "fixed_monthly", category: "network", label: "DUOS connection unit charge", ratePerMonth: 1719.07 },
     { kind: "energy", category: "network", label: "Network volume (DUOS+TUOS+JS)", period: "all", rate: 0.01974 },
-    { kind: "demand_monthly", category: "network", label: "Network peak demand (DUOS+TUOS)", period: "peak", unit: "kVA", rate: 11.011 },
+    {
+      kind: "demand_monthly",
+      category: "network",
+      label: "Network peak demand (DUOS+TUOS)",
+      period: "peak",
+      unit: "kVA",
+      rate: 11.011,
+      window: ENERGEX_7400_DEMAND_WINDOW,
+    },
 
-    // ---- Retail (Origin, from the bill, ex-GST) ----
-    // Effective per-kWh rates derived from the bill so each component reproduces the
-    // invoice (they bake in loss factors and the environmental certificate %).
-    { kind: "energy", category: "retail", label: "Retail energy (blended — see note)", period: "all", rate: 0.082443 },
-    { kind: "energy", category: "retail", label: "Environmental (SREC + LREC, certificate-adjusted)", period: "all", rate: 0.011259 },
-    { kind: "energy", category: "retail", label: "Regulated / market (AEMO)", period: "all", rate: 0.001316 },
+    // ---- Retail (Origin, from the bill, ex-GST; raw rates + explicit loss factors) ----
+    { kind: "energy", category: "retail", label: "Retail energy (peak)", period: "peak", rate: 0.072713, losses: ["MLF", "DLF"] },
+    { kind: "energy", category: "retail", label: "Retail energy (off-peak)", period: "shoulder", rate: 0.093965, losses: ["MLF", "DLF"] },
+    { kind: "energy", category: "retail", label: "Environmental (SREC + LREC, certificate-adjusted)", period: "all", rate: 0.010786, losses: ["DLF"] },
+    { kind: "energy", category: "retail", label: "Regulated / market (AEMO)", period: "all", rate: 0.001261, losses: ["DLF"] },
     { kind: "fixed_daily", category: "retail", label: "AEMO FRC operations", ratePerDay: 0.032437 },
     { kind: "fixed_daily", category: "retail", label: "Metering (2 meters)", ratePerDay: 3.232876 },
   ],

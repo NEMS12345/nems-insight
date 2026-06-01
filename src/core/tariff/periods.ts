@@ -10,6 +10,11 @@ function windowMatches(
   return win.ranges.some((r) => minute >= r.startMin && minute < r.endMin);
 }
 
+/** Whether an interval (by AEST start) falls inside a window. */
+export function inWindow(intervalStart: string, win: PeriodWindow): boolean {
+  return windowMatches(win, aestDayType(intervalStart), aestMinuteOfDay(intervalStart));
+}
+
 /**
  * Classify an interval (by its AEST start time) into a time-of-use period.
  * Off-peak wins, then peak, else shoulder — matching the Energex definition where shoulder

@@ -7,10 +7,12 @@ interface MeteringPointRow {
   nmi: string;
   meter_serial: string | null;
   tariff_code: string | null;
+  mlf: number | string | null;
+  dlf: number | string | null;
   meter_type: MeteringPoint["meterType"];
 }
 
-const COLS = "id, site_id, nmi, meter_serial, tariff_code, meter_type";
+const COLS = "id, site_id, nmi, meter_serial, tariff_code, mlf, dlf, meter_type";
 
 function toMeteringPoint(row: MeteringPointRow): MeteringPoint {
   return {
@@ -19,6 +21,8 @@ function toMeteringPoint(row: MeteringPointRow): MeteringPoint {
     nmi: row.nmi,
     meterSerial: row.meter_serial ?? undefined,
     tariffCode: row.tariff_code ?? undefined,
+    mlf: row.mlf === null ? undefined : Number(row.mlf),
+    dlf: row.dlf === null ? undefined : Number(row.dlf),
     meterType: row.meter_type,
   };
 }
@@ -43,6 +47,8 @@ export interface NewMeteringPoint {
   nmi: string;
   meterSerial?: string;
   tariffCode?: string;
+  mlf?: number;
+  dlf?: number;
 }
 
 export async function createMeteringPoint(
@@ -57,6 +63,8 @@ export async function createMeteringPoint(
       nmi: input.nmi,
       meter_serial: input.meterSerial || null,
       tariff_code: input.tariffCode || null,
+      mlf: input.mlf ?? null,
+      dlf: input.dlf ?? null,
       meter_type: "nmi_parent",
     })
     .select(COLS)

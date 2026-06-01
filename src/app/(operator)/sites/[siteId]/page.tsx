@@ -124,6 +124,22 @@ export default async function SitePage({
             <option value="7200">Network tariff: Energex 7200 (SAC Large TOU)</option>
             <option value="7400">Network tariff: Energex 7400 (11kV TOU Demand)</option>
           </select>
+          <div className="flex gap-3">
+            <input
+              name="mlf"
+              type="number"
+              step="0.00001"
+              placeholder="MLF (e.g. 1.01060)"
+              className="w-1/2 rounded border border-black/15 px-3 py-2 text-sm"
+            />
+            <input
+              name="dlf"
+              type="number"
+              step="0.00001"
+              placeholder="DLF (e.g. 1.04388)"
+              className="w-1/2 rounded border border-black/15 px-3 py-2 text-sm"
+            />
+          </div>
           <button
             type="submit"
             className="self-start rounded bg-foreground px-3 py-2 text-sm text-background"

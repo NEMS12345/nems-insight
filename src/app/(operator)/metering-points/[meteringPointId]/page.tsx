@@ -78,9 +78,10 @@ export default async function MeteringPointPage({
   const daily = dailyConsumption(readings);
   const profile = loadProfileByTimeOfDay(readings);
 
-  // Model on the tariff this NMI is billed on (falls back to 7200).
+  // Model on the tariff this NMI is billed on (falls back to 7200), with its loss factors.
   const tariff = getTariff(mp.tariffCode ?? "") ?? ENERGEX_7200;
-  const modelled = computeCost(readings, tariff);
+  const losses = { mlf: mp.mlf ?? undefined, dlf: mp.dlf ?? undefined };
+  const modelled = computeCost(readings, tariff, losses);
 
   // Per-bill reconciliation: cost the readings within each bill's period on its tariff,
   // then compare to the billed total.
@@ -90,7 +91,7 @@ export default async function MeteringPointPage({
       const d = aestDate(r.intervalStart);
       return d >= b.periodStart && d <= b.periodEnd;
     });
-    const cost = computeCost(inPeriod, billTariff);
+    const cost = computeCost(inPeriod, billTariff, losses);
     return { bill: b, cost, recon: reconcile(cost.total, b.billedTotal) };
   });
 

@@ -76,12 +76,16 @@ export async function createMeteringPointAction(formData: FormData) {
   const nmi = str(formData, "nmi");
   if (!siteId || !clientId || !nmi) return;
 
+  const mlf = Number(str(formData, "mlf"));
+  const dlf = Number(str(formData, "dlf"));
   await createMeteringPoint({
     siteId,
     clientId,
     nmi,
     meterSerial: str(formData, "meterSerial") || undefined,
     tariffCode: str(formData, "tariffCode") || undefined,
+    mlf: Number.isFinite(mlf) && mlf > 0 ? mlf : undefined,
+    dlf: Number.isFinite(dlf) && dlf > 0 ? dlf : undefined,
   });
 
   revalidatePath(`/sites/${siteId}`);

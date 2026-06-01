@@ -51,16 +51,27 @@ export type Charge =
       category: Category;
       label: string;
       period: EnergyPeriod;
-      rate: number; // $/kWh
+      rate: number; // $/kWh (raw, before loss factors)
+      /** Loss factors applied to this charge's energy (e.g. ["MLF","DLF"]). */
+      losses?: LossFactor[];
     }
   | {
       kind: "demand_monthly";
       category: Category;
       label: string;
-      period: TouPeriod; // demand is measured within this period's window
+      period: TouPeriod; // demand measured within this period's window (unless `window` set)
       unit: "kW" | "kVA";
       rate: number; // $/unit/month, charged on the monthly maximum interval demand in-window
+      /** Explicit demand window, when it differs from the energy period windows. */
+      window?: PeriodWindow;
     };
+
+export type LossFactor = "MLF" | "DLF";
+
+export interface LossFactors {
+  mlf?: number; // marginal loss factor (default 1)
+  dlf?: number; // distribution loss factor (default 1)
+}
 
 export interface Tariff {
   code: string;

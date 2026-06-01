@@ -123,9 +123,11 @@ interval data for the bill's period + tariff) against `billed_total`, flagging
 match / review / investigate. Two Energex tariffs are modelled: **7200** (SAC Large TOU,
 kW demand) and **7400** (11kV TOU Demand, kVA demand) — each metering point records its
 `tariff_code`. The 7400 network rates + the **Origin retail rates** layered on top are
-derived from a real Origin invoice and reproduce it to ~0.1%. Open items: Origin's retail
-peak/off-peak TOU windows (retail energy is currently a blended rate) and whether to model
-loss factors explicitly (currently baked into the effective per-kWh rates).
+derived from a real Origin invoice. Retail energy is true TOU (peak assumed 7am–9pm
+weekdays pending Origin's contract windows); loss factors (MLF/DLF) are stored per NMI and
+applied explicitly per charge (energy = MLF×DLF, environmental/regulated = DLF, network
+volume = none). Shape-independent charges reproduce the invoice to the cent; retail energy
+tracks the actual load shape.
 
 ### Domain realities baked into the model (do not "simplify" these away)
 1. **A metering point has multiple channels per interval**, not one number. NEM12 carries

@@ -61,6 +61,10 @@ export interface MeteringPoint {
   meterSerial?: string;
   /** Network tariff code this metering point is billed on, e.g. "7200" / "7400". */
   tariffCode?: string;
+  /** Marginal (transmission) loss factor for this NMI. */
+  mlf?: number;
+  /** Distribution loss factor for this NMI. */
+  dlf?: number;
   meterType: "nmi-parent";
 }
 
