@@ -1,0 +1,66 @@
+# NEMS Insight
+
+Energy monitoring and analysis for Australian commercial & industrial (C&I) businesses.
+
+NEMS Insight ingests a client's meter data (NEM12) and retailer bills, then surfaces
+consumption, demand/peak, power factor, tariff and network-charge analysis, and cost
+breakdowns across a portfolio — with drill-down to site and metering-point level. Its
+headline capability is **reconciliation**: comparing the cost modelled from interval data
+against what was actually billed, to catch billing errors and assess whether a client's
+energy arrangement is good or bad.
+
+It is **operator-first**: the primary users are the managed-service team; clients get a
+clean, read-only reporting view. It is not a self-serve public SaaS — but it's architected
+so a self-serve tier can be added later without a rebuild.
+
+> **For the full brief, architecture rules, data model, scope, and conventions, read
+> [`CLAUDE.md`](./CLAUDE.md).** That file is the source of truth.
+
+## Tech stack
+
+- Next.js + TypeScript + Tailwind
+- Supabase (Postgres, auth, storage)
+- Deployed on Vercel
+
+## Architecture (three layers)
+
+```
+(1) Ingestion  ->  (2) Analytics / calculation core  ->  (3) Presentation / reporting
+```
+
+The calculation core (`src/core`) is **pure TypeScript** — no Supabase, Next.js, or React
+imports. This keeps the money logic portable and testable, and is what lets a self-serve
+tier bolt on later. The rule is enforced by ESLint. See `CLAUDE.md` §3–4.
+
+```
+src/
+  core/        pure analytics + tariff/cost engine
+  ingestion/   parsers + validators (NEM12 first)
+  data/        the only layer that talks to Supabase
+  app/         Next.js routes — (operator) console + (client) read-only view
+  components/  shared UI
+supabase/      migrations + seed
+tests/
+```
+
+## Getting started
+
+```bash
+# 1. Install dependencies
+npm install
+
+# 2. Configure environment (never commit real secrets)
+cp .env.example .env.local
+# then fill in your Supabase values in .env.local
+
+# 3. Run the dev server
+npm run dev
+```
+
+Open http://localhost:3000.
+
+## Conventions
+
+- Australian spelling, AUD, AU regulatory context.
+- Small, reviewable commits with clear messages.
+- Secrets live in `.env.local` (git-ignored) and Vercel env vars — never in the repo.
