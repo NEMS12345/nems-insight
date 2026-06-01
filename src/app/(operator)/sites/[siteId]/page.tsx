@@ -3,10 +3,12 @@ import { notFound } from "next/navigation";
 import { getSite } from "@/data/repositories/sites";
 import { getClient } from "@/data/repositories/clients";
 import { listMeteringPointsForSite } from "@/data/repositories/meteringPoints";
+import { listImportBatchesForClient } from "@/data/repositories/imports";
 import {
-  listImportBatchesForClient,
-  readingCountByMeteringPoint,
-} from "@/data/repositories/imports";
+  siteEnergiesForClient,
+  meteringPointEnergiesForSite,
+} from "@/data/repositories/rollups";
+import { energyLabel } from "@/lib/format";
 import { createMeteringPointAction, importNem12Action } from "../../actions";
 
 const STATUS_STYLE: Record<string, string> = {
@@ -25,12 +27,15 @@ export default async function SitePage({
   const site = await getSite(siteId);
   if (!site) notFound();
 
-  const [client, meteringPoints, batches] = await Promise.all([
-    getClient(site.clientId),
-    listMeteringPointsForSite(siteId),
-    listImportBatchesForClient(site.clientId),
-  ]);
-  const counts = await readingCountByMeteringPoint(meteringPoints.map((m) => m.id));
+  const [client, meteringPoints, batches, siteEnergies, mpEnergies] =
+    await Promise.all([
+      getClient(site.clientId),
+      listMeteringPointsForSite(siteId),
+      listImportBatchesForClient(site.clientId),
+      siteEnergiesForClient(site.clientId),
+      meteringPointEnergiesForSite(siteId),
+    ]);
+  const siteTotal = siteEnergies.get(siteId);
 
   return (
     <div className="flex flex-col gap-8">
@@ -49,6 +54,9 @@ export default async function SitePage({
         <h1 className="text-xl font-semibold">{site.name}</h1>
         <p className="text-sm text-foreground/60">
           {[site.address, site.network, site.state].filter(Boolean).join(" · ")}
+          {siteTotal && siteTotal.readingCount > 0
+            ? ` · ${energyLabel(siteTotal.importKwh)} total`
+            : ""}
         </p>
       </section>
 
@@ -61,7 +69,7 @@ export default async function SitePage({
         ) : (
           <ul className="mt-2 divide-y divide-black/10 rounded border border-black/10">
             {meteringPoints.map((mp) => {
-              const n = counts.get(mp.id) ?? 0;
+              const e = mpEnergies.get(mp.id);
               return (
                 <li key={mp.id}>
                   <Link
@@ -70,8 +78,8 @@ export default async function SitePage({
                   >
                     <span className="font-mono">{mp.nmi}</span>
                     <span className="text-xs text-foreground/50">
-                      {n > 0
-                        ? `${n.toLocaleString("en-AU")} intervals →`
+                      {e && e.readingCount > 0
+                        ? `${energyLabel(e.importKwh)} →`
                         : "no data yet"}
                     </span>
                   </Link>

@@ -187,27 +187,3 @@ export async function listImportBatchesForClient(
   }));
 }
 
-export interface MeteringPointStats {
-  readingCount: number;
-}
-
-/** How many interval readings have landed for each metering point under a site. */
-export async function readingCountByMeteringPoint(
-  meteringPointIds: string[],
-): Promise<Map<string, number>> {
-  const counts = new Map<string, number>();
-  if (meteringPointIds.length === 0) return counts;
-
-  const supabase = await createSupabaseServerClient();
-  // One head-count query per metering point keeps it simple and RLS-safe.
-  await Promise.all(
-    meteringPointIds.map(async (id) => {
-      const { count } = await supabase
-        .from("interval_reading")
-        .select("id", { count: "exact", head: true })
-        .eq("metering_point_id", id);
-      counts.set(id, count ?? 0);
-    }),
-  );
-  return counts;
-}

@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getClient } from "@/data/repositories/clients";
 import { listSitesForClient } from "@/data/repositories/sites";
+import { clientEnergy, siteEnergiesForClient } from "@/data/repositories/rollups";
+import { energyLabel } from "@/lib/format";
 import { createSiteAction } from "../../actions";
 
 export default async function ClientPage({
@@ -13,7 +15,11 @@ export default async function ClientPage({
   const client = await getClient(clientId);
   if (!client) notFound();
 
-  const sites = await listSitesForClient(clientId);
+  const [sites, energy, siteEnergies] = await Promise.all([
+    listSitesForClient(clientId),
+    clientEnergy(clientId),
+    siteEnergiesForClient(clientId),
+  ]);
 
   return (
     <div className="flex flex-col gap-8">
@@ -29,6 +35,9 @@ export default async function ClientPage({
         <p className="text-sm text-foreground/60">
           {client.abn ? `ABN ${client.abn} · ` : ""}
           {client.status}
+          {energy.readingCount > 0
+            ? ` · ${energyLabel(energy.importKwh)} across ${sites.length} site${sites.length === 1 ? "" : "s"}`
+            : ""}
         </p>
       </section>
 
@@ -38,19 +47,25 @@ export default async function ClientPage({
           <p className="mt-2 text-sm text-foreground/60">No sites yet.</p>
         ) : (
           <ul className="mt-2 divide-y divide-black/10 rounded border border-black/10">
-            {sites.map((s) => (
-              <li key={s.id}>
-                <Link
-                  href={`/sites/${s.id}`}
-                  className="flex items-center justify-between px-4 py-3 hover:bg-black/[0.03]"
-                >
-                  <span>{s.name}</span>
-                  <span className="text-xs text-foreground/50">
-                    {[s.network, s.state].filter(Boolean).join(" · ")}
-                  </span>
-                </Link>
-              </li>
-            ))}
+            {sites.map((s) => {
+              const e = siteEnergies.get(s.id);
+              return (
+                <li key={s.id}>
+                  <Link
+                    href={`/sites/${s.id}`}
+                    className="flex items-center justify-between px-4 py-3 hover:bg-black/[0.03]"
+                  >
+                    <span>{s.name}</span>
+                    <span className="text-xs text-foreground/50">
+                      {e && e.readingCount > 0
+                        ? `${energyLabel(e.importKwh)} · `
+                        : ""}
+                      {[s.network, s.state].filter(Boolean).join(" · ")}
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>

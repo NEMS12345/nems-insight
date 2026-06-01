@@ -96,6 +96,13 @@ The schema lives in `supabase/migrations/` and is the source of truth.
    quality flags), the original is kept in Storage, readings land against the matching
    NMIs, and every upload is recorded in the import history.
 
+### Portfolio rollups (Phase 5)
+
+Apply `supabase/migrations/0003_rollups.sql`. It adds RLS-respecting views
+(`metering_point_energy`, `site_energy`, `client_energy`) that aggregate consumption up
+the hierarchy, so the portfolio / client / site pages show energy totals and let you drill
+down portfolio → client → site → NMI → analytics.
+
 ### Useful scripts
 
 ```bash
