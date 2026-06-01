@@ -112,11 +112,21 @@ export default async function MeteringPointPage({
         / <span className="font-mono text-foreground/70">{mp.nmi}</span>
       </nav>
 
-      <section>
-        <h1 className="font-mono text-xl font-semibold">{mp.nmi}</h1>
-        <p className="text-sm text-foreground/60">
-          {readings.length.toLocaleString("en-AU")} interval readings
-        </p>
+      <section className="flex items-center justify-between">
+        <div>
+          <h1 className="font-mono text-xl font-semibold">{mp.nmi}</h1>
+          <p className="text-sm text-foreground/60">
+            {readings.length.toLocaleString("en-AU")} interval readings
+          </p>
+        </div>
+        {readings.length > 0 && (
+          <Link
+            href={`/report/${mp.id}`}
+            className="rounded border border-black/15 px-3 py-2 text-sm hover:bg-black/[0.03]"
+          >
+            Client report →
+          </Link>
+        )}
       </section>
 
       {readings.length === 0 ? (

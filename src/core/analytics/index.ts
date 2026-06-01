@@ -5,3 +5,4 @@ export * from "@/core/analytics/consumption";
 export * from "@/core/analytics/demand";
 export * from "@/core/analytics/powerFactor";
 export * from "@/core/analytics/loadProfile";
+export * from "@/core/analytics/solar";

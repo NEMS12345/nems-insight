@@ -161,7 +161,12 @@ tracks the actual load shape.
 5. **Reconciliation** — modelled cost vs. billed cost, discrepancies flagged. *Headline.*
 6. **Analytics** — consumption, demand/peak, power factor, cost breakdown; portfolio
    rollup with drill-down to site and metering point.
-7. **Client report / export** — one clean read-only deliverable.
+7. **Client report / export** — one clean, print-optimised read-only deliverable
+   (`app/(client)/report/[meteringPointId]`): summary + prioritised recommendations, usage
+   profile (load factor, profile, data quality), cost breakdown, bill reconciliation,
+   **network tariff check** (re-costs the load on each tariff and shows the switch saving,
+   eligibility-flagged), and a **solar recommendation** (sized to minimise export; saving,
+   payback, CO₂). Solar/tariff assumptions are explicit. Save-as-PDF from the browser.
 8. **Two front doors, one core** — operator console + read-only client view via RLS roles.
 
 ### NOT in v1 (deferred / roadmap)

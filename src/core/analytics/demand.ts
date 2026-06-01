@@ -66,3 +66,12 @@ export function averageDemandKw(
   if (points.length === 0) return 0;
   return points.reduce((sum, p) => sum + p.kw, 0) / points.length;
 }
+
+/**
+ * Load factor = average demand / peak demand (0–1). Low = peaky (demand charges and solar
+ * bite harder); high = flat. A key C&I health metric.
+ */
+export function loadFactor(readings: ReadonlyArray<AnalyticsReading>): number {
+  const peak = peakDemand(readings).kw;
+  return peak === 0 ? 0 : averageDemandKw(readings) / peak;
+}

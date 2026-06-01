@@ -30,6 +30,31 @@ function emptyByPeriod(): Record<TouPeriod, number> {
  * Days are derived from the distinct AEST dates present, and demand is the maximum 30-minute
  * interval demand within each charge's period, per calendar month — exactly the Energex rule.
  */
+/**
+ * The marginal energy cost of one more (or one fewer) kWh in a given period, $/kWh —
+ * the sum of energy-charge rates that apply to that period (incl. flat "all" charges),
+ * with loss factors. Used to value solar self-consumption (daytime ≈ peak).
+ */
+export function marginalEnergyRatePerKwh(
+  tariff: Tariff,
+  period: TouPeriod,
+  losses: LossFactors = {},
+): number {
+  const mlf = losses.mlf ?? 1;
+  const dlf = losses.dlf ?? 1;
+  let rate = 0;
+  for (const charge of tariff.charges) {
+    if (charge.kind !== "energy") continue;
+    if (charge.period !== "all" && charge.period !== period) continue;
+    const lossMult = (charge.losses ?? []).reduce(
+      (m, lf) => m * (lf === "MLF" ? mlf : dlf),
+      1,
+    );
+    rate += charge.rate * lossMult;
+  }
+  return rate;
+}
+
 export function computeCost(
   readings: ReadonlyArray<AnalyticsReading>,
   tariff: Tariff,
