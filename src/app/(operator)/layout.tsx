@@ -16,15 +16,15 @@ export default async function OperatorLayout({
   if (!ctx) redirect("/login");
 
   return (
-    <div className="min-h-screen">
-      <header className="flex items-center justify-between border-b border-black/10 px-6 py-3">
-        <Link href="/" className="font-semibold">
-          NEMS Insight
+    <div className="min-h-screen bg-bg">
+      <header className="flex items-center justify-between bg-sidebar px-6 py-3 text-white">
+        <Link href="/" className="font-semibold tracking-tight">
+          NEMS <span className="text-accent">Insight</span>
         </Link>
-        <div className="flex items-center gap-4 text-sm text-foreground/60">
+        <div className="flex items-center gap-4 text-sm text-white/60">
           <span>{ctx.email}</span>
           <form action={signOutAction}>
-            <button type="submit" className="underline">
+            <button type="submit" className="hover:text-white">
               Sign out
             </button>
           </form>

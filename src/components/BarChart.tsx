@@ -46,7 +46,7 @@ export function BarChart({
               y={y}
               width={barW * 0.8}
               height={Math.max(h, 0)}
-              fill="#171717"
+              fill="#2357d7"
             >
               <title>{`${d.label}: ${d.value.toLocaleString("en-AU", {
                 maximumFractionDigits: 2,

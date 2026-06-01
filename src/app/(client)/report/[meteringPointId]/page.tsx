@@ -62,7 +62,7 @@ function kw(n: number): string {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="break-inside-avoid border-t border-black/10 pt-6">
+    <section className="break-inside-avoid border-t border-border pt-6">
       <h2 className="mb-3 text-lg font-semibold">{title}</h2>
       {children}
     </section>
@@ -70,7 +70,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 function Metric({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="rounded border border-black/10 p-3">
+    <div className="rounded border border-border p-3">
       <div className="text-[11px] uppercase tracking-wide text-black/50">{label}</div>
       <div className="text-xl font-semibold">{value}</div>
       {sub && <div className="text-[11px] text-black/50">{sub}</div>}

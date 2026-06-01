@@ -12,9 +12,9 @@ import { energyLabel } from "@/lib/format";
 import { createMeteringPointAction, importDataAction } from "../../actions";
 
 const STATUS_STYLE: Record<string, string> = {
-  parsed: "text-green-700",
-  partial: "text-amber-700",
-  failed: "text-red-700",
+  parsed: "text-good",
+  partial: "text-warn",
+  failed: "text-bad",
   pending: "text-foreground/50",
 };
 
@@ -67,7 +67,7 @@ export default async function SitePage({
             No metering points yet — add one before importing data.
           </p>
         ) : (
-          <ul className="mt-2 divide-y divide-black/10 rounded border border-black/10">
+          <ul className="mt-2 divide-y divide-border rounded border border-border">
             {meteringPoints.map((mp) => {
               const e = mpEnergies.get(mp.id);
               return (
@@ -97,7 +97,7 @@ export default async function SitePage({
         )}
       </section>
 
-      <section className="rounded border border-black/10 p-4">
+      <section className="rounded border border-border p-4">
         <h2 className="font-medium">New metering point</h2>
         <form
           action={createMeteringPointAction}
@@ -109,17 +109,17 @@ export default async function SitePage({
             name="nmi"
             required
             placeholder="NMI (e.g. 31000000000)"
-            className="rounded border border-black/15 px-3 py-2 font-mono text-sm"
+            className="rounded border border-border px-3 py-2 font-mono text-sm"
           />
           <input
             name="meterSerial"
             placeholder="Meter serial (optional — only if the NMI has several meters)"
-            className="rounded border border-black/15 px-3 py-2 font-mono text-sm"
+            className="rounded border border-border px-3 py-2 font-mono text-sm"
           />
           <select
             name="tariffCode"
             defaultValue="7200"
-            className="rounded border border-black/15 px-3 py-2 text-sm"
+            className="rounded border border-border px-3 py-2 text-sm"
           >
             <option value="7200">Network tariff: Energex 7200 (SAC Large TOU)</option>
             <option value="7400">Network tariff: Energex 7400 (11kV TOU Demand)</option>
@@ -130,26 +130,26 @@ export default async function SitePage({
               type="number"
               step="0.00001"
               placeholder="MLF (e.g. 1.01060)"
-              className="w-1/2 rounded border border-black/15 px-3 py-2 text-sm"
+              className="w-1/2 rounded border border-border px-3 py-2 text-sm"
             />
             <input
               name="dlf"
               type="number"
               step="0.00001"
               placeholder="DLF (e.g. 1.04388)"
-              className="w-1/2 rounded border border-black/15 px-3 py-2 text-sm"
+              className="w-1/2 rounded border border-border px-3 py-2 text-sm"
             />
           </div>
           <button
             type="submit"
-            className="self-start rounded bg-foreground px-3 py-2 text-sm text-background"
+            className="self-start rounded bg-accent hover:bg-accent-hover px-3 py-2 text-sm text-white"
           >
             Add NMI
           </button>
         </form>
       </section>
 
-      <section className="rounded border border-black/10 p-4">
+      <section className="rounded border border-border p-4">
         <h2 className="font-medium">Import interval data</h2>
         <p className="mt-1 text-xs text-foreground/60">
           Upload a NEM12 file (.csv/.dat) or a 30-minute meter-profile export (.xlsx). NMIs
@@ -170,7 +170,7 @@ export default async function SitePage({
           />
           <button
             type="submit"
-            className="self-start rounded bg-foreground px-3 py-2 text-sm text-background"
+            className="self-start rounded bg-accent hover:bg-accent-hover px-3 py-2 text-sm text-white"
           >
             Upload &amp; import
           </button>
@@ -182,7 +182,7 @@ export default async function SitePage({
         {batches.length === 0 ? (
           <p className="mt-2 text-sm text-foreground/60">No imports yet.</p>
         ) : (
-          <ul className="mt-2 divide-y divide-black/10 rounded border border-black/10">
+          <ul className="mt-2 divide-y divide-border rounded border border-border">
             {batches.map((b) => (
               <li key={b.id} className="px-4 py-3 text-sm">
                 <div className="flex items-center justify-between">

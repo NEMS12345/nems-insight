@@ -39,7 +39,7 @@ export default async function ClientsPage() {
         </p>
       </section>
 
-      <section className="rounded border border-black/10 bg-black/[0.02] p-4">
+      <section className="rounded border border-border bg-black/[0.02] p-4">
         <div className="flex items-center justify-between">
           <h2 className="font-medium">Market reference price (ASX QLD futures)</h2>
           <span className="text-sm text-foreground/60">
@@ -58,19 +58,19 @@ export default async function ClientsPage() {
               step="0.01"
               required
               placeholder="e.g. 120.00"
-              className="rounded border border-black/15 px-3 py-2 text-sm"
+              className="rounded border border-border px-3 py-2 text-sm"
             />
           </label>
           <button
             type="submit"
-            className="rounded bg-foreground px-3 py-2 text-sm text-background"
+            className="rounded bg-accent hover:bg-accent-hover px-3 py-2 text-sm text-white"
           >
             Save today&apos;s rate
           </button>
         </form>
       </section>
 
-      <section className="rounded border border-black/10 bg-black/[0.02] p-4">
+      <section className="rounded border border-border bg-black/[0.02] p-4">
         <div className="flex items-center justify-between">
           <h2 className="font-medium">Emissions factor (NGA, QLD)</h2>
           <span className="text-sm text-foreground/60">
@@ -87,7 +87,7 @@ export default async function ClientsPage() {
               step="0.00001"
               required
               placeholder="e.g. 0.71"
-              className="rounded border border-black/15 px-3 py-2 text-sm"
+              className="rounded border border-border px-3 py-2 text-sm"
             />
           </label>
           <label className="flex flex-col gap-1 text-xs text-foreground/60">
@@ -95,12 +95,12 @@ export default async function ClientsPage() {
             <input
               name="ngaYear"
               placeholder="e.g. NGA 2024"
-              className="rounded border border-black/15 px-3 py-2 text-sm"
+              className="rounded border border-border px-3 py-2 text-sm"
             />
           </label>
           <button
             type="submit"
-            className="rounded bg-foreground px-3 py-2 text-sm text-background"
+            className="rounded bg-accent hover:bg-accent-hover px-3 py-2 text-sm text-white"
           >
             Save factor
           </button>
@@ -114,7 +114,7 @@ export default async function ClientsPage() {
             No clients yet — add your first one below.
           </p>
         ) : (
-          <ul className="mt-2 divide-y divide-black/10 rounded border border-black/10">
+          <ul className="mt-2 divide-y divide-border rounded border border-border">
             {clients.map((c) => {
               const e = energies.get(c.id);
               return (
@@ -137,24 +137,24 @@ export default async function ClientsPage() {
         )}
       </section>
 
-      <section className="rounded border border-black/10 p-4">
+      <section className="rounded border border-border p-4">
         <h2 className="font-medium">New client</h2>
         <form action={createClientAction} className="mt-3 flex flex-col gap-3">
           <input
             name="name"
             required
             placeholder="Business name"
-            className="rounded border border-black/15 px-3 py-2 text-sm"
+            className="rounded border border-border px-3 py-2 text-sm"
           />
           <input
             name="abn"
             placeholder="ABN (optional)"
-            className="rounded border border-black/15 px-3 py-2 text-sm"
+            className="rounded border border-border px-3 py-2 text-sm"
           />
           <select
             name="status"
             defaultValue="prospect"
-            className="rounded border border-black/15 px-3 py-2 text-sm"
+            className="rounded border border-border px-3 py-2 text-sm"
           >
             <option value="prospect">Prospect</option>
             <option value="active">Active</option>
@@ -162,7 +162,7 @@ export default async function ClientsPage() {
           </select>
           <button
             type="submit"
-            className="self-start rounded bg-foreground px-3 py-2 text-sm text-background"
+            className="self-start rounded bg-accent hover:bg-accent-hover px-3 py-2 text-sm text-white"
           >
             Add client
           </button>

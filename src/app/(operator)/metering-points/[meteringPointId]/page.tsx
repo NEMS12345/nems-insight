@@ -37,9 +37,9 @@ function kw(n: number): string {
 }
 
 const RECON_STYLE: Record<string, string> = {
-  match: "text-green-700",
-  review: "text-amber-700",
-  investigate: "text-red-700",
+  match: "text-good",
+  review: "text-warn",
+  investigate: "text-bad",
 };
 const RECON_LABEL: Record<string, string> = {
   match: "Matches model",
@@ -49,7 +49,7 @@ const RECON_LABEL: Record<string, string> = {
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="rounded border border-black/10 p-4">
+    <div className="rounded border border-border p-4">
       <div className="text-xs uppercase tracking-wide text-foreground/50">{label}</div>
       <div className="mt-1 text-2xl font-semibold">{value}</div>
       {sub && <div className="text-xs text-foreground/50">{sub}</div>}
@@ -126,7 +126,7 @@ export default async function MeteringPointPage({
         {readings.length > 0 && (
           <Link
             href={`/report/${mp.id}`}
-            className="rounded border border-black/15 px-3 py-2 text-sm hover:bg-black/[0.03]"
+            className="rounded border border-border px-3 py-2 text-sm hover:bg-black/[0.03]"
           >
             Client report →
           </Link>
@@ -205,7 +205,7 @@ export default async function MeteringPointPage({
               from {tariff.name}; retail from {retailPlan.label}
               {retailPlan.estimated && " (default — set this NMI's contract below)"}.
             </p>
-            <div className="mt-3 overflow-hidden rounded border border-black/10">
+            <div className="mt-3 overflow-hidden rounded border border-border">
               <table className="w-full text-sm">
                 <tbody className="divide-y divide-black/5">
                   {modelled.lines.map((l) => (
@@ -225,7 +225,7 @@ export default async function MeteringPointPage({
                     </tr>
                   ))}
                 </tbody>
-                <tfoot className="border-t border-black/10 font-medium">
+                <tfoot className="border-t border-border font-medium">
                   <tr>
                     <td className="px-4 py-2">
                       Network {moneyLabel(modelled.networkTotal)} · Retail{" "}
@@ -240,7 +240,7 @@ export default async function MeteringPointPage({
             </div>
           </section>
 
-          <section className="rounded border border-black/10 p-4">
+          <section className="rounded border border-border p-4">
             <h2 className="font-medium">Retail plan (this NMI)</h2>
             <p className="mt-1 text-xs text-foreground/60">
               Enter this NMI&apos;s retail contract rates (ex-GST). Currently using{" "}
@@ -266,13 +266,13 @@ export default async function MeteringPointPage({
                     type="number"
                     step="any"
                     defaultValue={Number(def)}
-                    className="rounded border border-black/15 px-3 py-2 text-sm text-foreground"
+                    className="rounded border border-border px-3 py-2 text-sm text-foreground"
                   />
                 </label>
               ))}
               <button
                 type="submit"
-                className="col-span-2 justify-self-start rounded bg-foreground px-3 py-2 text-sm text-background md:col-span-3"
+                className="col-span-2 justify-self-start rounded bg-accent hover:bg-accent-hover px-3 py-2 text-sm text-white md:col-span-3"
               >
                 Save retail plan
               </button>
@@ -287,7 +287,7 @@ export default async function MeteringPointPage({
             </p>
 
             {reconciliations.length > 0 && (
-              <ul className="mt-3 divide-y divide-black/10 rounded border border-black/10">
+              <ul className="mt-3 divide-y divide-border rounded border border-border">
                 {reconciliations.map(({ bill, cost, recon }) => (
                   <li key={bill.id} className="px-4 py-3 text-sm">
                     <div className="flex items-center justify-between">
@@ -313,7 +313,7 @@ export default async function MeteringPointPage({
 
             <form
               action={createBillAction}
-              className="mt-4 grid grid-cols-2 gap-3 rounded border border-black/10 p-4"
+              className="mt-4 grid grid-cols-2 gap-3 rounded border border-border p-4"
             >
               <input type="hidden" name="meteringPointId" value={mp.id} />
               <input type="hidden" name="clientId" value={mp.clientId} />
@@ -323,7 +323,7 @@ export default async function MeteringPointPage({
                 <input
                   name="retailer"
                   placeholder="e.g. Origin"
-                  className="rounded border border-black/15 px-3 py-2 text-sm text-foreground"
+                  className="rounded border border-border px-3 py-2 text-sm text-foreground"
                 />
               </label>
               <label className="flex flex-col gap-1 text-xs text-foreground/60">
@@ -332,7 +332,7 @@ export default async function MeteringPointPage({
                   type="date"
                   name="periodStart"
                   required
-                  className="rounded border border-black/15 px-3 py-2 text-sm text-foreground"
+                  className="rounded border border-border px-3 py-2 text-sm text-foreground"
                 />
               </label>
               <label className="flex flex-col gap-1 text-xs text-foreground/60">
@@ -341,7 +341,7 @@ export default async function MeteringPointPage({
                   type="date"
                   name="periodEnd"
                   required
-                  className="rounded border border-black/15 px-3 py-2 text-sm text-foreground"
+                  className="rounded border border-border px-3 py-2 text-sm text-foreground"
                 />
               </label>
               <label className="col-span-2 flex flex-col gap-1 text-xs text-foreground/60">
@@ -352,12 +352,12 @@ export default async function MeteringPointPage({
                   name="billedTotal"
                   required
                   placeholder="e.g. 12500.00"
-                  className="rounded border border-black/15 px-3 py-2 text-sm text-foreground"
+                  className="rounded border border-border px-3 py-2 text-sm text-foreground"
                 />
               </label>
               <button
                 type="submit"
-                className="col-span-2 justify-self-start rounded bg-foreground px-3 py-2 text-sm text-background"
+                className="col-span-2 justify-self-start rounded bg-accent hover:bg-accent-hover px-3 py-2 text-sm text-white"
               >
                 Add bill &amp; reconcile
               </button>

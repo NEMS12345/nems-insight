@@ -5,7 +5,7 @@ export function PrintButton() {
   return (
     <button
       onClick={() => window.print()}
-      className="rounded bg-foreground px-3 py-2 text-sm text-background print:hidden"
+      className="rounded bg-accent hover:bg-accent-hover px-3 py-2 text-sm text-white print:hidden"
     >
       Print / Save as PDF
     </button>

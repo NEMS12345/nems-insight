@@ -46,7 +46,7 @@ export default async function ClientPage({
         {sites.length === 0 ? (
           <p className="mt-2 text-sm text-foreground/60">No sites yet.</p>
         ) : (
-          <ul className="mt-2 divide-y divide-black/10 rounded border border-black/10">
+          <ul className="mt-2 divide-y divide-border rounded border border-border">
             {sites.map((s) => {
               const e = siteEnergies.get(s.id);
               return (
@@ -70,7 +70,7 @@ export default async function ClientPage({
         )}
       </section>
 
-      <section className="rounded border border-black/10 p-4">
+      <section className="rounded border border-border p-4">
         <h2 className="font-medium">New site</h2>
         <form action={createSiteAction} className="mt-3 flex flex-col gap-3">
           <input type="hidden" name="clientId" value={clientId} />
@@ -78,23 +78,23 @@ export default async function ClientPage({
             name="name"
             required
             placeholder="Site name"
-            className="rounded border border-black/15 px-3 py-2 text-sm"
+            className="rounded border border-border px-3 py-2 text-sm"
           />
           <input
             name="address"
             placeholder="Address (optional)"
-            className="rounded border border-black/15 px-3 py-2 text-sm"
+            className="rounded border border-border px-3 py-2 text-sm"
           />
           <div className="flex gap-3">
             <input
               name="state"
               placeholder="State (e.g. QLD)"
-              className="w-32 rounded border border-black/15 px-3 py-2 text-sm"
+              className="w-32 rounded border border-border px-3 py-2 text-sm"
             />
             <input
               name="network"
               placeholder="Network/DNSP (e.g. Energex)"
-              className="flex-1 rounded border border-black/15 px-3 py-2 text-sm"
+              className="flex-1 rounded border border-border px-3 py-2 text-sm"
             />
           </div>
           <input
@@ -102,11 +102,11 @@ export default async function ClientPage({
             type="number"
             step="0.1"
             placeholder="Floor area m² (optional — for energy intensity)"
-            className="rounded border border-black/15 px-3 py-2 text-sm"
+            className="rounded border border-border px-3 py-2 text-sm"
           />
           <button
             type="submit"
-            className="self-start rounded bg-foreground px-3 py-2 text-sm text-background"
+            className="self-start rounded bg-accent hover:bg-accent-hover px-3 py-2 text-sm text-white"
           >
             Add site
           </button>

@@ -45,7 +45,7 @@ export default function LoginPage() {
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="rounded border border-black/15 px-3 py-2"
+            className="rounded border border-border px-3 py-2"
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
@@ -55,16 +55,16 @@ export default function LoginPage() {
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="rounded border border-black/15 px-3 py-2"
+            className="rounded border border-border px-3 py-2"
           />
         </label>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p className="text-sm text-bad">{error}</p>}
 
         <button
           type="submit"
           disabled={loading}
-          className="rounded bg-foreground px-3 py-2 text-background disabled:opacity-50"
+          className="rounded bg-accent hover:bg-accent-hover px-3 py-2 text-white disabled:opacity-50"
         >
           {loading ? "Signing in…" : "Sign in"}
         </button>
