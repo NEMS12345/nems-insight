@@ -78,18 +78,19 @@ export default async function MeteringPointPage({
   const daily = dailyConsumption(readings);
   const profile = loadProfileByTimeOfDay(readings);
 
-  // Modelled cost over all available data, on the default Energex tariff.
-  const modelled = computeCost(readings, ENERGEX_7200);
+  // Model on the tariff this NMI is billed on (falls back to 7200).
+  const tariff = getTariff(mp.tariffCode ?? "") ?? ENERGEX_7200;
+  const modelled = computeCost(readings, tariff);
 
   // Per-bill reconciliation: cost the readings within each bill's period on its tariff,
   // then compare to the billed total.
   const reconciliations = bills.map((b) => {
-    const tariff = getTariff(b.tariffCode ?? "") ?? ENERGEX_7200;
+    const billTariff = getTariff(b.tariffCode ?? "") ?? tariff;
     const inPeriod = readings.filter((r) => {
       const d = aestDate(r.intervalStart);
       return d >= b.periodStart && d <= b.periodEnd;
     });
-    const cost = computeCost(inPeriod, tariff);
+    const cost = computeCost(inPeriod, billTariff);
     return { bill: b, cost, recon: reconcile(cost.total, b.billedTotal) };
   });
 
@@ -182,11 +183,11 @@ export default async function MeteringPointPage({
 
           <section>
             <h2 className="font-medium">
-              Modelled cost — {ENERGEX_7200.name}
+              Modelled cost — {tariff.name}
             </h2>
             <p className="text-xs text-foreground/50">
               Cost computed from interval data over the {modelled.days} days of data.
-              {ENERGEX_7200.hasEstimatedCharges &&
+              {tariff.hasEstimatedCharges &&
                 " Retail charges are estimates — replace with the client's contract rates."}
             </p>
             <div className="mt-3 overflow-hidden rounded border border-black/10">
@@ -262,7 +263,7 @@ export default async function MeteringPointPage({
             >
               <input type="hidden" name="meteringPointId" value={mp.id} />
               <input type="hidden" name="clientId" value={mp.clientId} />
-              <input type="hidden" name="tariffCode" value={ENERGEX_7200.code} />
+              <input type="hidden" name="tariffCode" value={tariff.code} />
               <label className="col-span-2 flex flex-col gap-1 text-xs text-foreground/60">
                 Retailer
                 <input

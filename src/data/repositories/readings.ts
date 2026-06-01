@@ -7,6 +7,7 @@ export interface MeteringPointDetail {
   siteId: string;
   clientId: string;
   nmi: string;
+  tariffCode: string | null;
 }
 
 export async function getMeteringPointDetail(
@@ -15,7 +16,7 @@ export async function getMeteringPointDetail(
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
     .from("metering_point")
-    .select("id, site_id, client_id, nmi")
+    .select("id, site_id, client_id, nmi, tariff_code")
     .eq("id", id)
     .maybeSingle();
   if (error) throw error;
@@ -25,12 +26,14 @@ export async function getMeteringPointDetail(
     site_id: string;
     client_id: string;
     nmi: string;
+    tariff_code: string | null;
   };
   return {
     id: row.id,
     siteId: row.site_id,
     clientId: row.client_id,
     nmi: row.nmi,
+    tariffCode: row.tariff_code,
   };
 }
 

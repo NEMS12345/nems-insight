@@ -59,6 +59,8 @@ export interface MeteringPoint {
   nmi: string;
   /** Meter serial, where the source identifies individual meters under an NMI. */
   meterSerial?: string;
+  /** Network tariff code this metering point is billed on, e.g. "7200" / "7400". */
+  tariffCode?: string;
   meterType: "nmi-parent";
 }
 

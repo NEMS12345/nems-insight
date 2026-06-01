@@ -81,6 +81,7 @@ export async function createMeteringPointAction(formData: FormData) {
     clientId,
     nmi,
     meterSerial: str(formData, "meterSerial") || undefined,
+    tariffCode: str(formData, "tariffCode") || undefined,
   });
 
   revalidatePath(`/sites/${siteId}`);

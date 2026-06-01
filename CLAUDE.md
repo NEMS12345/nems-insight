@@ -120,8 +120,12 @@ Bills ARE tables (operator-entered facts):
 
 Reconciliation (`src/core/tariff/reconciliation.ts`) compares the modelled cost (engine over
 interval data for the bill's period + tariff) against `billed_total`, flagging
-match / review / investigate. Energex 7200 (Large TOU Demand & Energy) is modelled in v1;
-retail charges are clearly-labelled estimates until the client's contract rates are entered.
+match / review / investigate. Two Energex tariffs are modelled: **7200** (SAC Large TOU,
+kW demand) and **7400** (11kV TOU Demand, kVA demand) — each metering point records its
+`tariff_code`. The 7400 network rates + the **Origin retail rates** layered on top are
+derived from a real Origin invoice and reproduce it to ~0.1%. Open items: Origin's retail
+peak/off-peak TOU windows (retail energy is currently a blended rate) and whether to model
+loss factors explicitly (currently baked into the effective per-kWh rates).
 
 ### Domain realities baked into the model (do not "simplify" these away)
 1. **A metering point has multiple channels per interval**, not one number. NEM12 carries

@@ -11,6 +11,7 @@ import { classifyPeriod } from "@/core/tariff/periods";
 
 interface IntervalDemand {
   kw: number;
+  kva: number;
   period: TouPeriod;
   month: string;
 }
@@ -33,29 +34,39 @@ export function computeCost(
 ): CostResult {
   const energyByPeriod = emptyByPeriod();
   const days = new Set<string>();
+  const months = new Set<string>();
 
-  // Sum consumption energy per interval (multiple E channels combine), then derive power.
-  const perInterval = new Map<string, { kwh: number; length: number }>();
+  // Sum consumption (E) and reactive (Q) energy per interval; export is ignored for cost.
+  const perInterval = new Map<string, { kwh: number; kvarh: number; length: number }>();
   for (const r of readings) {
-    if (channelKind(r.channel) !== "consumption") continue;
+    const kind = channelKind(r.channel);
+    if (kind !== "consumption" && kind !== "reactive") continue;
     days.add(aestDate(r.intervalStart));
-    const slot = perInterval.get(r.intervalStart);
-    if (slot) slot.kwh += r.value;
-    else perInterval.set(r.intervalStart, { kwh: r.value, length: r.intervalLength });
+    months.add(aestYearMonth(r.intervalStart));
+    const slot =
+      perInterval.get(r.intervalStart) ??
+      { kwh: 0, kvarh: 0, length: r.intervalLength };
+    if (kind === "consumption") slot.kwh += r.value;
+    else slot.kvarh += r.value;
+    perInterval.set(r.intervalStart, slot);
   }
 
   const demand: IntervalDemand[] = [];
-  for (const [intervalStart, { kwh, length }] of perInterval) {
+  for (const [intervalStart, { kwh, kvarh, length }] of perInterval) {
     const period = classifyPeriod(intervalStart, tariff.periods);
     energyByPeriod[period] += kwh;
+    const kw = intervalPowerKw(kwh, length);
+    const kvar = intervalPowerKw(kvarh, length);
     demand.push({
-      kw: intervalPowerKw(kwh, length),
+      kw,
+      kva: Math.sqrt(kw * kw + kvar * kvar), // apparent power; == kw when no reactive data
       period,
       month: aestYearMonth(intervalStart),
     });
   }
 
   const dayCount = days.size;
+  const monthCount = months.size;
   const totalEnergy =
     energyByPeriod.peak + energyByPeriod.shoulder + energyByPeriod.offpeak;
 
@@ -69,6 +80,13 @@ export function computeCost(
         amount: charge.ratePerDay * dayCount,
         detail: `${dayCount} days @ $${charge.ratePerDay}/day`,
       });
+    } else if (charge.kind === "fixed_monthly") {
+      lines.push({
+        label: charge.label,
+        category: charge.category,
+        amount: charge.ratePerMonth * monthCount,
+        detail: `${monthCount} month${monthCount === 1 ? "" : "s"} @ $${charge.ratePerMonth}/month`,
+      });
     } else if (charge.kind === "energy") {
       const kwh = charge.period === "all" ? totalEnergy : energyByPeriod[charge.period];
       lines.push({
@@ -78,12 +96,14 @@ export function computeCost(
         detail: `${Math.round(kwh).toLocaleString("en-AU")} kWh @ $${charge.rate}/kWh`,
       });
     } else {
-      // demand_monthly: sum each calendar month's maximum in-window demand.
+      // demand_monthly: sum each calendar month's maximum in-window demand,
+      // measured in kVA (apparent power) or kW (real power) per the charge.
       const monthlyMax = new Map<string, number>();
       for (const d of demand) {
         if (d.period !== charge.period) continue;
+        const value = charge.unit === "kVA" ? d.kva : d.kw;
         const prev = monthlyMax.get(d.month) ?? 0;
-        if (d.kw > prev) monthlyMax.set(d.month, d.kw);
+        if (value > prev) monthlyMax.set(d.month, value);
       }
       const summedMax = [...monthlyMax.values()].reduce((s, v) => s + v, 0);
       const months = monthlyMax.size;

@@ -118,6 +118,44 @@ describe("computeCost", () => {
   });
 });
 
+describe("kVA demand and monthly fixed charges", () => {
+  const tariff: Tariff = {
+    code: "KVA",
+    name: "kVA test",
+    network: "Energex",
+    currency: "AUD",
+    hasEstimatedCharges: false,
+    periods: {
+      peak: { dayTypes: ["weekday"], ranges: [{ startMin: 1020, endMin: 1200 }] },
+      offpeak: { dayTypes: [], ranges: [] },
+    },
+    charges: [
+      { kind: "fixed_monthly", category: "network", label: "Connection", ratePerMonth: 100 },
+      {
+        kind: "demand_monthly",
+        category: "network",
+        label: "kVA demand",
+        period: "peak",
+        unit: "kVA",
+        rate: 10,
+      },
+    ],
+  };
+
+  it("computes apparent power (kVA) from real + reactive and charges monthly fixed", () => {
+    const c = computeCost(
+      [
+        // peak interval: 6 kWh -> 12 kW, 8 kVArh -> 16 kVAr => kVA = sqrt(12^2+16^2)=20
+        e1(MON, "17:00", 6),
+        { channel: "Q1", intervalStart: at(MON, "17:00"), intervalLength: 30, value: 8, unit: "kVArh", quality: "actual" },
+      ],
+      tariff,
+    );
+    expect(c.lines.find((l) => l.label === "kVA demand")!.amount).toBeCloseTo(200); // 20 kVA * 10
+    expect(c.lines.find((l) => l.label === "Connection")!.amount).toBeCloseTo(100); // 1 month
+  });
+});
+
 describe("reconcile", () => {
   it("flags match / review / investigate by variance band", () => {
     expect(reconcile(100, 101).status).toBe("match"); // 1%

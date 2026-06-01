@@ -116,6 +116,14 @@ export default async function SitePage({
             placeholder="Meter serial (optional — only if the NMI has several meters)"
             className="rounded border border-black/15 px-3 py-2 font-mono text-sm"
           />
+          <select
+            name="tariffCode"
+            defaultValue="7200"
+            className="rounded border border-black/15 px-3 py-2 text-sm"
+          >
+            <option value="7200">Network tariff: Energex 7200 (SAC Large TOU)</option>
+            <option value="7400">Network tariff: Energex 7400 (11kV TOU Demand)</option>
+          </select>
           <button
             type="submit"
             className="self-start rounded bg-foreground px-3 py-2 text-sm text-background"

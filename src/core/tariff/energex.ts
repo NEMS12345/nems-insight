@@ -107,9 +107,57 @@ export const ENERGEX_7200: Tariff = {
   ],
 };
 
+// Tariff 7400 — Energex 11kV Time of Use Demand (CAC HV). Peak DEMAND window is 9am–9pm
+// weekdays (Tariff Guide); network energy is a flat volume charge (no ToU). offpeak is
+// empty because this tariff has no off-peak demand/energy split.
+const ENERGEX_7400_PERIODS: PeriodDefinition = {
+  peak: { dayTypes: ["weekday"], ranges: [{ startMin: 9 * 60, endMin: 21 * 60 }] },
+  offpeak: { dayTypes: [], ranges: [] },
+};
+
+/**
+ * Energex 7400 — 11kV TOU Demand, with the Origin retail charges that layer on top.
+ *
+ * Network rates and the Origin retail rates are taken from a real Origin tax invoice
+ * (March 2026, NMI QB04077571). Demand is billed on kVA (apparent power). Two things are
+ * APPROXIMATIONS pending confirmation, and are flagged in the cost output:
+ *   1. Retail energy is modelled as a single blended rate (bill total ÷ kWh = 8.244 ¢/kWh).
+ *      The bill's actual rates are peak 7.2713 ¢ / off-peak 9.3965 ¢, but Origin's TOU
+ *      window definitions aren't on the bill, so the peak/off-peak split can't yet be
+ *      modelled from intervals.
+ *   2. Loss factors (MLF 1.0106 × DLF 1.0439) that the bill applies to energy are NOT yet
+ *      applied here, so energy will read ~5.5% under the bill.
+ */
+export const ENERGEX_7400: Tariff = {
+  code: "7400",
+  name: "Energex 11kV TOU Demand + Origin retail",
+  network: "Energex",
+  currency: "AUD",
+  hasEstimatedCharges: true,
+  periods: ENERGEX_7400_PERIODS,
+  charges: [
+    // ---- Network (Energex 7400, from the bill, ex-GST) ----
+    { kind: "fixed_daily", category: "network", label: "Network access (DUOS)", ratePerDay: 22.306 },
+    { kind: "fixed_daily", category: "network", label: "Jurisdictional scheme (fixed)", ratePerDay: 0.573 },
+    { kind: "fixed_monthly", category: "network", label: "DUOS connection unit charge", ratePerMonth: 1719.07 },
+    { kind: "energy", category: "network", label: "Network volume (DUOS+TUOS+JS)", period: "all", rate: 0.01974 },
+    { kind: "demand_monthly", category: "network", label: "Network peak demand (DUOS+TUOS)", period: "peak", unit: "kVA", rate: 11.011 },
+
+    // ---- Retail (Origin, from the bill, ex-GST) ----
+    // Effective per-kWh rates derived from the bill so each component reproduces the
+    // invoice (they bake in loss factors and the environmental certificate %).
+    { kind: "energy", category: "retail", label: "Retail energy (blended — see note)", period: "all", rate: 0.082443 },
+    { kind: "energy", category: "retail", label: "Environmental (SREC + LREC, certificate-adjusted)", period: "all", rate: 0.011259 },
+    { kind: "energy", category: "retail", label: "Regulated / market (AEMO)", period: "all", rate: 0.001316 },
+    { kind: "fixed_daily", category: "retail", label: "AEMO FRC operations", ratePerDay: 0.032437 },
+    { kind: "fixed_daily", category: "retail", label: "Metering (2 meters)", ratePerDay: 3.232876 },
+  ],
+};
+
 /** Registry of tariffs the engine knows about (data-driven — add rows, not code). */
 export const TARIFFS: Record<string, Tariff> = {
   "7200": ENERGEX_7200,
+  "7400": ENERGEX_7400,
 };
 
 export function getTariff(code: string): Tariff | undefined {

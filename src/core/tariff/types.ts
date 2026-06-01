@@ -41,6 +41,12 @@ export type Charge =
       ratePerDay: number; // $/day
     }
   | {
+      kind: "fixed_monthly";
+      category: Category;
+      label: string;
+      ratePerMonth: number; // $/calendar month (e.g. connection-unit charges)
+    }
+  | {
       kind: "energy";
       category: Category;
       label: string;
