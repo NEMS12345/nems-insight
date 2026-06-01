@@ -71,6 +71,31 @@ The schema lives in `supabase/migrations/` and is the source of truth.
    create a sample client/site/NMI.
 4. `npm run dev`, sign in at `/login`, and you can create **client → site → NMI**.
 
+### Ingestion setup (Phase 2)
+
+1. Apply `supabase/migrations/0002_ingestion.sql` (interval data + import audit + raw files).
+2. Create a **private** Storage bucket named `raw-files` (Storage → New bucket, uncheck
+   public), then add policies so operators can read/write within their client's folder:
+
+   ```sql
+   insert into storage.buckets (id, name, public)
+     values ('raw-files', 'raw-files', false) on conflict (id) do nothing;
+
+   create policy "operators read raw files" on storage.objects
+     for select to authenticated
+     using (bucket_id = 'raw-files'
+            and can_operate_client((storage.foldername(name))[1]::uuid));
+
+   create policy "operators write raw files" on storage.objects
+     for insert to authenticated
+     with check (bucket_id = 'raw-files'
+                 and can_operate_client((storage.foldername(name))[1]::uuid));
+   ```
+
+3. On a site page you can now **upload a NEM12 file**: it's parsed (all channels, with
+   quality flags), the original is kept in Storage, readings land against the matching
+   NMIs, and every upload is recorded in the import history.
+
 ### Useful scripts
 
 ```bash

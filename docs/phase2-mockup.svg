@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="820" viewBox="0 0 720 820" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial">
+  <rect width="720" height="820" fill="#f4f4f5"/>
+  <text x="28" y="36" font-size="18" font-weight="700" fill="#171717">NEMS Insight — Phase 2: NEM12 ingestion (site page)</text>
+
+  <g transform="translate(28,58)">
+    <rect width="664" height="736" rx="10" fill="#ffffff" stroke="#e4e4e7"/>
+    <line x1="0" y1="46" x2="664" y2="46" stroke="#ededf0"/>
+    <text x="20" y="30" font-size="14" font-weight="700" fill="#171717">NEMS Insight</text>
+    <text x="560" y="30" font-size="11" fill="#3f3f46" text-decoration="underline">Sign out</text>
+
+    <text x="20" y="74" font-size="11" fill="#a1a1aa">Clients / Acme Manufacturing Pty Ltd / <tspan fill="#52525b">Acme Brisbane Plant</tspan></text>
+    <text x="20" y="98" font-size="16" font-weight="700" fill="#171717">Acme Brisbane Plant</text>
+    <text x="20" y="116" font-size="11" fill="#a1a1aa">10 Factory Rd, Brisbane QLD 4000 · Energex · QLD</text>
+
+    <!-- metering points with counts -->
+    <text x="20" y="146" font-size="13" font-weight="600" fill="#3f3f46">Metering points (NMIs)</text>
+    <rect x="20" y="156" width="624" height="76" rx="8" fill="#fff" stroke="#e4e4e7"/>
+    <line x1="20" y1="194" x2="644" y2="194" stroke="#f1f1f3"/>
+    <text x="36" y="181" font-size="13" font-family="ui-monospace, monospace" fill="#171717">31000000000</text>
+    <text x="628" y="181" font-size="11" fill="#16a34a" text-anchor="end">17,520 intervals</text>
+    <text x="36" y="219" font-size="13" font-family="ui-monospace, monospace" fill="#171717">31000000001</text>
+    <text x="628" y="219" font-size="11" fill="#a1a1aa" text-anchor="end">no data yet</text>
+
+    <!-- upload -->
+    <rect x="20" y="248" width="624" height="118" rx="8" fill="#fafafa" stroke="#e4e4e7"/>
+    <text x="36" y="274" font-size="13" font-weight="600" fill="#3f3f46">Import NEM12 data</text>
+    <text x="36" y="293" font-size="10.5" fill="#a1a1aa">Upload a NEM12 file. NMIs are matched to the metering points above; all channels</text>
+    <text x="36" y="307" font-size="10.5" fill="#a1a1aa">(consumption, export, reactive) are imported with quality flags.</text>
+    <rect x="36" y="318" width="300" height="30" rx="6" fill="#fff" stroke="#d4d4d8"/>
+    <text x="48" y="338" font-size="11" fill="#52525b">acme_jan2024.csv</text>
+    <rect x="430" y="318" width="180" height="30" rx="6" fill="#171717"/>
+    <text x="520" y="338" font-size="12" font-weight="600" fill="#fff" text-anchor="middle">Upload &amp; import</text>
+
+    <!-- import history -->
+    <text x="20" y="396" font-size="13" font-weight="600" fill="#3f3f46">Import history</text>
+    <rect x="20" y="406" width="624" height="300" rx="8" fill="#fff" stroke="#e4e4e7"/>
+
+    <text x="36" y="432" font-size="11" font-family="ui-monospace, monospace" fill="#3f3f46">acme_jan2024.csv</text>
+    <text x="628" y="432" font-size="11" font-weight="600" fill="#15803d" text-anchor="end">parsed</text>
+    <text x="36" y="450" font-size="10.5" fill="#a1a1aa">1/02/2024, 9:14:02 am · 17,520 readings</text>
+    <line x1="20" y1="468" x2="644" y2="468" stroke="#f1f1f3"/>
+
+    <text x="36" y="494" font-size="11" font-family="ui-monospace, monospace" fill="#3f3f46">acme_dec2023.csv</text>
+    <text x="628" y="494" font-size="11" font-weight="600" fill="#b45309" text-anchor="end">partial</text>
+    <text x="36" y="512" font-size="10.5" fill="#a1a1aa">1/02/2024, 9:10:55 am · 16,800 readings · 2 errors · 5 warnings</text>
+    <line x1="20" y1="530" x2="644" y2="530" stroke="#f1f1f3"/>
+
+    <text x="36" y="556" font-size="11" font-family="ui-monospace, monospace" fill="#3f3f46">wrong_nmi.csv</text>
+    <text x="628" y="556" font-size="11" font-weight="600" fill="#b91c1c" text-anchor="end">failed</text>
+    <text x="36" y="574" font-size="10.5" fill="#a1a1aa">1/02/2024, 9:02:11 am · 0 readings · 1 warning (NMI not configured here)</text>
+
+    <text x="20" y="734" font-size="10.5" fill="#a1a1aa" font-style="italic"></text>
+  </g>
+  <text x="28" y="810" font-size="11" fill="#a1a1aa" font-style="italic">Mockup. Parser + validators verified by 12 passing unit tests; schema + RLS verified against Postgres.</text>
+</svg>
