@@ -1,5 +1,5 @@
 import type { AnalyticsReading } from "@/core/analytics/types";
-import { channelKind } from "@/core/analytics/types";
+import { channelKind, intervalPowerKw } from "@/core/analytics/types";
 
 export interface PowerFactorResult {
   /** Power factor in (0, 1], or null when there's no real energy to assess. */
@@ -63,4 +63,41 @@ export function powerFactorByInterval(
     if (value !== null) out.push({ intervalStart, powerFactor: value });
   }
   return out.sort((a, b) => a.intervalStart.localeCompare(b.intervalStart));
+}
+
+export interface PeakDemandPowerFactor {
+  intervalStart: string | null;
+  kw: number;
+  kva: number;
+  powerFactor: number | null;
+}
+
+/**
+ * Power factor at the demand-setting interval (the max-kVA interval). This is the PF that
+ * matters for a kVA demand charge — not the period average. Real and reactive energy are
+ * summed per interval, then apparent power picks the peak.
+ */
+export function powerFactorAtPeakDemand(
+  readings: ReadonlyArray<AnalyticsReading>,
+): PeakDemandPowerFactor {
+  const byInterval = new Map<string, { real: number; reactive: number; length: number }>();
+  for (const r of readings) {
+    const kind = channelKind(r.channel);
+    if (kind !== "consumption" && kind !== "reactive") continue;
+    const slot = byInterval.get(r.intervalStart) ?? { real: 0, reactive: 0, length: r.intervalLength };
+    if (kind === "consumption") slot.real += r.value;
+    else slot.reactive += r.value;
+    byInterval.set(r.intervalStart, slot);
+  }
+
+  let best: PeakDemandPowerFactor = { intervalStart: null, kw: 0, kva: 0, powerFactor: null };
+  for (const [intervalStart, { real, reactive, length }] of byInterval) {
+    const kw = intervalPowerKw(real, length);
+    const kvar = intervalPowerKw(reactive, length);
+    const kva = Math.sqrt(kw * kw + kvar * kvar);
+    if (kva > best.kva) {
+      best = { intervalStart, kw, kva, powerFactor: kva === 0 ? null : kw / kva };
+    }
+  }
+  return best;
 }

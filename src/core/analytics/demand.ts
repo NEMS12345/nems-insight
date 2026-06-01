@@ -75,3 +75,13 @@ export function loadFactor(readings: ReadonlyArray<AnalyticsReading>): number {
   const peak = peakDemand(readings).kw;
   return peak === 0 ? 0 : averageDemandKw(readings) / peak;
 }
+
+/** The highest N demand intervals — peaks are usually a handful of short events. */
+export function topDemandIntervals(
+  readings: ReadonlyArray<AnalyticsReading>,
+  n: number,
+): DemandPoint[] {
+  return [...demandByInterval(readings)]
+    .sort((a, b) => b.kw - a.kw)
+    .slice(0, n);
+}
