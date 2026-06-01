@@ -103,6 +103,14 @@ Apply `supabase/migrations/0003_rollups.sql`. It adds RLS-respecting views
 the hierarchy, so the portfolio / client / site pages show energy totals and let you drill
 down portfolio → client → site → NMI → analytics.
 
+### Tariff, cost & reconciliation (Phase 4)
+
+Apply `supabase/migrations/0004_bills.sql` (the `bill` / `bill_line_item` tables). On a
+metering point's page you'll then see the **modelled cost** from interval data on the
+Energex 7200 tariff (network rates published; retail rates are estimates in
+`src/core/tariff/energex.ts` — replace with the client's contract), and you can **enter a
+bill** to **reconcile** modelled vs billed, flagged match / review / investigate.
+
 ### Useful scripts
 
 ```bash

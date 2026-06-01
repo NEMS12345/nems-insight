@@ -14,8 +14,18 @@ import {
   periodPowerFactor,
   loadProfileByTimeOfDay,
   formatMinuteOfDay,
+  aestDate,
 } from "@/core/analytics";
+import {
+  computeCost,
+  reconcile,
+  getTariff,
+  ENERGEX_7200,
+} from "@/core/tariff";
+import { listBillsForMeteringPoint } from "@/data/repositories/bills";
 import { BarChart } from "@/components/BarChart";
+import { moneyLabel } from "@/lib/format";
+import { createBillAction } from "../../actions";
 
 function kwh(n: number): string {
   return `${n.toLocaleString("en-AU", { maximumFractionDigits: 0 })} kWh`;
@@ -23,6 +33,17 @@ function kwh(n: number): string {
 function kw(n: number): string {
   return `${n.toLocaleString("en-AU", { maximumFractionDigits: 1 })} kW`;
 }
+
+const RECON_STYLE: Record<string, string> = {
+  match: "text-green-700",
+  review: "text-amber-700",
+  investigate: "text-red-700",
+};
+const RECON_LABEL: Record<string, string> = {
+  match: "Matches model",
+  review: "Review",
+  investigate: "Investigate",
+};
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
@@ -43,10 +64,11 @@ export default async function MeteringPointPage({
   const mp = await getMeteringPointDetail(meteringPointId);
   if (!mp) notFound();
 
-  const [site, client, readings] = await Promise.all([
+  const [site, client, readings, bills] = await Promise.all([
     getSite(mp.siteId),
     getClient(mp.clientId),
     getReadingsForMeteringPoint(meteringPointId),
+    listBillsForMeteringPoint(meteringPointId),
   ]);
 
   const summary = consumptionSummary(readings);
@@ -55,6 +77,21 @@ export default async function MeteringPointPage({
   const pf = periodPowerFactor(readings);
   const daily = dailyConsumption(readings);
   const profile = loadProfileByTimeOfDay(readings);
+
+  // Modelled cost over all available data, on the default Energex tariff.
+  const modelled = computeCost(readings, ENERGEX_7200);
+
+  // Per-bill reconciliation: cost the readings within each bill's period on its tariff,
+  // then compare to the billed total.
+  const reconciliations = bills.map((b) => {
+    const tariff = getTariff(b.tariffCode ?? "") ?? ENERGEX_7200;
+    const inPeriod = readings.filter((r) => {
+      const d = aestDate(r.intervalStart);
+      return d >= b.periodStart && d <= b.periodEnd;
+    });
+    const cost = computeCost(inPeriod, tariff);
+    return { bill: b, cost, recon: reconcile(cost.total, b.billedTotal) };
+  });
 
   return (
     <div className="flex flex-col gap-8">
@@ -141,6 +178,135 @@ export default async function MeteringPointPage({
                 data={daily.map((d) => ({ label: d.date.slice(5), value: d.importKwh }))}
               />
             </div>
+          </section>
+
+          <section>
+            <h2 className="font-medium">
+              Modelled cost — {ENERGEX_7200.name}
+            </h2>
+            <p className="text-xs text-foreground/50">
+              Cost computed from interval data over the {modelled.days} days of data.
+              {ENERGEX_7200.hasEstimatedCharges &&
+                " Retail charges are estimates — replace with the client's contract rates."}
+            </p>
+            <div className="mt-3 overflow-hidden rounded border border-black/10">
+              <table className="w-full text-sm">
+                <tbody className="divide-y divide-black/5">
+                  {modelled.lines.map((l) => (
+                    <tr key={l.label}>
+                      <td className="px-4 py-2">
+                        {l.label}
+                        <span className="ml-2 text-xs uppercase text-foreground/40">
+                          {l.category}
+                        </span>
+                        {l.detail && (
+                          <div className="text-xs text-foreground/50">{l.detail}</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-right tabular-nums">
+                        {moneyLabel(l.amount)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="border-t border-black/10 font-medium">
+                  <tr>
+                    <td className="px-4 py-2">
+                      Network {moneyLabel(modelled.networkTotal)} · Retail{" "}
+                      {moneyLabel(modelled.retailTotal)}
+                    </td>
+                    <td className="px-4 py-2 text-right text-base tabular-nums">
+                      {moneyLabel(modelled.total)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </section>
+
+          <section>
+            <h2 className="font-medium">Bills &amp; reconciliation</h2>
+            <p className="text-xs text-foreground/50">
+              Enter the billed total (ex-GST) for a period; it&apos;s compared to the cost
+              modelled from interval data on the same tariff.
+            </p>
+
+            {reconciliations.length > 0 && (
+              <ul className="mt-3 divide-y divide-black/10 rounded border border-black/10">
+                {reconciliations.map(({ bill, cost, recon }) => (
+                  <li key={bill.id} className="px-4 py-3 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span>
+                        {bill.periodStart} → {bill.periodEnd}
+                        {bill.retailer ? ` · ${bill.retailer}` : ""}
+                      </span>
+                      <span
+                        className={`text-xs font-semibold ${RECON_STYLE[recon.status]}`}
+                      >
+                        {RECON_LABEL[recon.status]}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-xs text-foreground/60">
+                      Billed {moneyLabel(bill.billedTotal)} · Modelled{" "}
+                      {moneyLabel(cost.total)} · Variance {moneyLabel(recon.variance)} (
+                      {(recon.variancePct * 100).toFixed(1)}%)
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <form
+              action={createBillAction}
+              className="mt-4 grid grid-cols-2 gap-3 rounded border border-black/10 p-4"
+            >
+              <input type="hidden" name="meteringPointId" value={mp.id} />
+              <input type="hidden" name="clientId" value={mp.clientId} />
+              <input type="hidden" name="tariffCode" value={ENERGEX_7200.code} />
+              <label className="col-span-2 flex flex-col gap-1 text-xs text-foreground/60">
+                Retailer
+                <input
+                  name="retailer"
+                  placeholder="e.g. Origin"
+                  className="rounded border border-black/15 px-3 py-2 text-sm text-foreground"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-foreground/60">
+                Period start
+                <input
+                  type="date"
+                  name="periodStart"
+                  required
+                  className="rounded border border-black/15 px-3 py-2 text-sm text-foreground"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-foreground/60">
+                Period end
+                <input
+                  type="date"
+                  name="periodEnd"
+                  required
+                  className="rounded border border-black/15 px-3 py-2 text-sm text-foreground"
+                />
+              </label>
+              <label className="col-span-2 flex flex-col gap-1 text-xs text-foreground/60">
+                Billed total (ex-GST, AUD)
+                <input
+                  type="number"
+                  step="0.01"
+                  name="billedTotal"
+                  required
+                  placeholder="e.g. 12500.00"
+                  className="rounded border border-black/15 px-3 py-2 text-sm text-foreground"
+                />
+              </label>
+              <button
+                type="submit"
+                className="col-span-2 justify-self-start rounded bg-foreground px-3 py-2 text-sm text-background"
+              >
+                Add bill &amp; reconcile
+              </button>
+            </form>
           </section>
         </>
       )}

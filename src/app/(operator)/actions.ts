@@ -16,6 +16,8 @@ import {
   type ReadingInsert,
 } from "@/data/repositories/imports";
 import { parseNem12 } from "@/ingestion/parsers/nem12";
+import { createBill } from "@/data/repositories/bills";
+import { getTariff } from "@/core/tariff";
 import { createSupabaseServerClient } from "@/data/supabase/server";
 import type { Client } from "@/core/types";
 
@@ -164,6 +166,34 @@ export async function importNem12Action(formData: FormData) {
   });
 
   revalidatePath(`/sites/${siteId}`);
+}
+
+export async function createBillAction(formData: FormData) {
+  const ctx = await getOperatorContext();
+  if (!ctx) redirect("/login");
+
+  const meteringPointId = str(formData, "meteringPointId");
+  const clientId = str(formData, "clientId");
+  const periodStart = str(formData, "periodStart");
+  const periodEnd = str(formData, "periodEnd");
+  const billedTotal = Number(str(formData, "billedTotal"));
+  if (!meteringPointId || !clientId || !periodStart || !periodEnd) return;
+  if (!Number.isFinite(billedTotal)) return;
+
+  const tariffCode = str(formData, "tariffCode") || undefined;
+  await createBill({
+    clientId,
+    meteringPointId,
+    retailer: str(formData, "retailer") || undefined,
+    tariffCode,
+    tariffName: tariffCode ? getTariff(tariffCode)?.name : undefined,
+    periodStart,
+    periodEnd,
+    billedTotal,
+    notes: str(formData, "notes") || undefined,
+  });
+
+  revalidatePath(`/metering-points/${meteringPointId}`);
 }
 
 export async function signOutAction() {

@@ -25,3 +25,17 @@ export function formatMinuteOfDay(minuteOfDay: number): string {
   const mm = String(minuteOfDay % 60).padStart(2, "0");
   return `${hh}:${mm}`;
 }
+
+/**
+ * "weekday" (Mon–Fri) or "weekend" (Sat/Sun) in AEST. Per the Energex guide, weekdays
+ * include public holidays, so no holiday calendar is needed.
+ */
+export function aestDayType(iso: string): "weekday" | "weekend" {
+  const day = shifted(iso).getUTCDay(); // 0 = Sun .. 6 = Sat
+  return day === 0 || day === 6 ? "weekend" : "weekday";
+}
+
+/** AEST calendar month of an interval, as "YYYY-MM" (for monthly demand charges). */
+export function aestYearMonth(iso: string): string {
+  return shifted(iso).toISOString().slice(0, 7);
+}

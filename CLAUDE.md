@@ -106,8 +106,22 @@ Hierarchy: **organisation -> client (portfolio) -> site -> metering point (NMI) 
 | `import_batch` | One row per uploaded file | uploader, time, detected format, status, row counts, errors |
 | `raw_file` | Original uploaded file, kept verbatim in Supabase Storage | so we can re-parse from source |
 
-Tariff/cost + bill tables are defined in Phase 4 (see scope) — they depend on the Energex
-tariff structure and the reconciliation design.
+**Tariffs are DATA-IN-CODE, not DB tables** (`src/core/tariff/energex.ts`): a `Tariff` is a
+declarative list of charges (fixed/energy-ToU/monthly-demand) + time-of-use window
+definitions, which the pure engine (`src/core/tariff/engine.ts`) applies to interval data.
+Adding a network/retailer = adding a `Tariff` value, not changing the engine.
+
+Bills ARE tables (operator-entered facts):
+
+| Table | Holds | Key fields |
+|---|---|---|
+| `bill` | One entered retailer bill | `client_id`, `metering_point_id`, retailer, `tariff_code`, period, `billed_total` (ex-GST) |
+| `bill_line_item` | Optional bill breakdown | `bill_id`, `client_id`, label, category, amount |
+
+Reconciliation (`src/core/tariff/reconciliation.ts`) compares the modelled cost (engine over
+interval data for the bill's period + tariff) against `billed_total`, flagging
+match / review / investigate. Energex 7200 (Large TOU Demand & Energy) is modelled in v1;
+retail charges are clearly-labelled estimates until the client's contract rates are entered.
 
 ### Domain realities baked into the model (do not "simplify" these away)
 1. **A metering point has multiple channels per interval**, not one number. NEM12 carries
