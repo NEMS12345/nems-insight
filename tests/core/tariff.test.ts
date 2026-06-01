@@ -110,11 +110,10 @@ describe("computeCost", () => {
     expect(c.lines.find((l) => l.label === "Peak demand")!.amount).toBeCloseTo(640);
   });
 
-  it("splits network vs retail and computes a non-zero total on the real tariff", () => {
+  it("ENERGEX tariffs are network-only (retail is per-NMI)", () => {
     const c = computeCost([e1(MON, "17:30", 100)], ENERGEX_7200);
     expect(c.networkTotal).toBeGreaterThan(0);
-    expect(c.retailTotal).toBeGreaterThan(0);
-    expect(c.total).toBeCloseTo(c.networkTotal + c.retailTotal);
+    expect(c.retailTotal).toBe(0);
   });
 });
 

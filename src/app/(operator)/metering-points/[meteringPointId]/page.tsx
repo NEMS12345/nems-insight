@@ -17,15 +17,17 @@ import {
   aestDate,
 } from "@/core/analytics";
 import {
-  computeCost,
+  computeFullCost,
   reconcile,
   getTariff,
+  DEFAULT_RETAIL_PLAN,
   ENERGEX_7200,
 } from "@/core/tariff";
 import { listBillsForMeteringPoint } from "@/data/repositories/bills";
+import { getRetailPlan } from "@/data/repositories/retailPlans";
 import { BarChart } from "@/components/BarChart";
 import { moneyLabel } from "@/lib/format";
-import { createBillAction } from "../../actions";
+import { createBillAction, createRetailPlanAction } from "../../actions";
 
 function kwh(n: number): string {
   return `${n.toLocaleString("en-AU", { maximumFractionDigits: 0 })} kWh`;
@@ -64,12 +66,14 @@ export default async function MeteringPointPage({
   const mp = await getMeteringPointDetail(meteringPointId);
   if (!mp) notFound();
 
-  const [site, client, readings, bills] = await Promise.all([
+  const [site, client, readings, bills, retailPlanRow] = await Promise.all([
     getSite(mp.siteId),
     getClient(mp.clientId),
     getReadingsForMeteringPoint(meteringPointId),
     listBillsForMeteringPoint(meteringPointId),
+    getRetailPlan(meteringPointId),
   ]);
+  const retailPlan = retailPlanRow ?? DEFAULT_RETAIL_PLAN;
 
   const summary = consumptionSummary(readings);
   const peak = peakDemand(readings);
@@ -81,17 +85,17 @@ export default async function MeteringPointPage({
   // Model on the tariff this NMI is billed on (falls back to 7200), with its loss factors.
   const tariff = getTariff(mp.tariffCode ?? "") ?? ENERGEX_7200;
   const losses = { mlf: mp.mlf ?? undefined, dlf: mp.dlf ?? undefined };
-  const modelled = computeCost(readings, tariff, losses);
+  const modelled = computeFullCost(readings, tariff, retailPlan, losses);
 
-  // Per-bill reconciliation: cost the readings within each bill's period on its tariff,
-  // then compare to the billed total.
+  // Per-bill reconciliation: cost the readings within each bill's period on its tariff
+  // + retail plan, then compare to the billed total.
   const reconciliations = bills.map((b) => {
     const billTariff = getTariff(b.tariffCode ?? "") ?? tariff;
     const inPeriod = readings.filter((r) => {
       const d = aestDate(r.intervalStart);
       return d >= b.periodStart && d <= b.periodEnd;
     });
-    const cost = computeCost(inPeriod, billTariff, losses);
+    const cost = computeFullCost(inPeriod, billTariff, retailPlan, losses);
     return { bill: b, cost, recon: reconcile(cost.total, b.billedTotal) };
   });
 
@@ -197,9 +201,9 @@ export default async function MeteringPointPage({
               Modelled cost — {tariff.name}
             </h2>
             <p className="text-xs text-foreground/50">
-              Cost computed from interval data over the {modelled.days} days of data.
-              {tariff.hasEstimatedCharges &&
-                " Retail charges are estimates — replace with the client's contract rates."}
+              Cost computed from interval data over the {modelled.days} days of data. Network
+              from {tariff.name}; retail from {retailPlan.label}
+              {retailPlan.estimated && " (default — set this NMI's contract below)"}.
             </p>
             <div className="mt-3 overflow-hidden rounded border border-black/10">
               <table className="w-full text-sm">
@@ -234,6 +238,45 @@ export default async function MeteringPointPage({
                 </tfoot>
               </table>
             </div>
+          </section>
+
+          <section className="rounded border border-black/10 p-4">
+            <h2 className="font-medium">Retail plan (this NMI)</h2>
+            <p className="mt-1 text-xs text-foreground/60">
+              Enter this NMI&apos;s retail contract rates (ex-GST). Currently using{" "}
+              <strong>{retailPlan.label}</strong>.
+            </p>
+            <form action={createRetailPlanAction} className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
+              <input type="hidden" name="meteringPointId" value={mp.id} />
+              <input type="hidden" name="clientId" value={mp.clientId} />
+              {[
+                ["peakRate", "Energy peak $/kWh", retailPlan.peakRatePerKwh],
+                ["offpeakRate", "Energy off-peak $/kWh", retailPlan.offpeakRatePerKwh],
+                ["environmentalRate", "Environmental $/kWh", retailPlan.environmentalPerKwh],
+                ["marketRate", "Market/AEMO $/kWh", retailPlan.marketPerKwh],
+                ["supplyPerDay", "Supply $/day", retailPlan.supplyPerDay],
+                ["meteringPerDay", "Metering $/day", retailPlan.meteringPerDay],
+                ["peakStartHour", "Peak start (hour)", retailPlan.peakWindow.ranges[0]?.startMin / 60],
+                ["peakEndHour", "Peak end (hour)", retailPlan.peakWindow.ranges[0]?.endMin / 60],
+              ].map(([name, label, def]) => (
+                <label key={name as string} className="flex flex-col gap-1 text-xs text-foreground/60">
+                  {label as string}
+                  <input
+                    name={name as string}
+                    type="number"
+                    step="any"
+                    defaultValue={Number(def)}
+                    className="rounded border border-black/15 px-3 py-2 text-sm text-foreground"
+                  />
+                </label>
+              ))}
+              <button
+                type="submit"
+                className="col-span-2 justify-self-start rounded bg-foreground px-3 py-2 text-sm text-background md:col-span-3"
+              >
+                Save retail plan
+              </button>
+            </form>
           </section>
 
           <section>

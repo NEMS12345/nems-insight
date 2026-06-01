@@ -23,6 +23,7 @@ import type { ParsedReading, ParseResult } from "@/ingestion/types";
 import { createBill } from "@/data/repositories/bills";
 import { createMarketPrice } from "@/data/repositories/marketPrices";
 import { createEmissionsFactor } from "@/data/repositories/emissionsFactors";
+import { upsertRetailPlan } from "@/data/repositories/retailPlans";
 import { getTariff } from "@/core/tariff";
 import { createSupabaseServerClient } from "@/data/supabase/server";
 import type { Client } from "@/core/types";
@@ -261,6 +262,39 @@ export async function createEmissionsFactorAction(formData: FormData) {
     ngaYear: str(formData, "ngaYear") || undefined,
   });
   revalidatePath("/");
+}
+
+export async function createRetailPlanAction(formData: FormData) {
+  const ctx = await getOperatorContext();
+  if (!ctx) redirect("/login");
+
+  const meteringPointId = str(formData, "meteringPointId");
+  const clientId = str(formData, "clientId");
+  const peakRate = Number(str(formData, "peakRate"));
+  const offpeakRate = Number(str(formData, "offpeakRate"));
+  if (!meteringPointId || !clientId) return;
+  if (!Number.isFinite(peakRate) || !Number.isFinite(offpeakRate)) return;
+
+  const numOr = (key: string, fallback: number) => {
+    const n = Number(str(formData, key));
+    return Number.isFinite(n) ? n : fallback;
+  };
+
+  await upsertRetailPlan({
+    meteringPointId,
+    clientId,
+    label: str(formData, "label") || undefined,
+    peakRate,
+    offpeakRate,
+    peakStartHour: numOr("peakStartHour", 7),
+    peakEndHour: numOr("peakEndHour", 21),
+    environmentalRate: numOr("environmentalRate", 0),
+    marketRate: numOr("marketRate", 0),
+    supplyPerDay: numOr("supplyPerDay", 0),
+    meteringPerDay: numOr("meteringPerDay", 0),
+  });
+
+  revalidatePath(`/metering-points/${meteringPointId}`);
 }
 
 export async function signOutAction() {

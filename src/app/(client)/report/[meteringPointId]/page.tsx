@@ -8,6 +8,7 @@ import { getClient } from "@/data/repositories/clients";
 import { listBillsForMeteringPoint } from "@/data/repositories/bills";
 import { getLatestMarketPrice } from "@/data/repositories/marketPrices";
 import { getLatestEmissionsFactor } from "@/data/repositories/emissionsFactors";
+import { getRetailPlan } from "@/data/repositories/retailPlans";
 import {
   consumptionSummary,
   peakDemand,
@@ -26,7 +27,10 @@ import {
   NGA_FACTOR_YEAR,
 } from "@/core/analytics";
 import {
-  computeCost,
+  computeFullCost,
+  computeRetailCost,
+  retailMarginalPeakRate,
+  DEFAULT_RETAIL_PLAN,
   compareTariffs,
   reconcile,
   getTariff,
@@ -83,12 +87,14 @@ export default async function ClientReport({
   const mp = await getMeteringPointDetail(meteringPointId);
   if (!mp) notFound();
 
-  const [site, client, readings, bills] = await Promise.all([
+  const [site, client, readings, bills, retailPlanRow] = await Promise.all([
     getSite(mp.siteId),
     getClient(mp.clientId),
     getReadingsForMeteringPoint(meteringPointId),
     listBillsForMeteringPoint(meteringPointId),
+    getRetailPlan(meteringPointId),
   ]);
+  const retailPlan = retailPlanRow ?? DEFAULT_RETAIL_PLAN;
 
   const tariff = getTariff(mp.tariffCode ?? "") ?? ENERGEX_7200;
   const losses: LossFactors = { mlf: mp.mlf ?? undefined, dlf: mp.dlf ?? undefined };
@@ -106,7 +112,7 @@ export default async function ClientReport({
   const daily = dailyConsumption(readings);
   const ops = analyseOperations(readings);
   const topPeaks = topDemandIntervals(readings, 5);
-  const modelled = computeCost(readings, tariff, losses);
+  const modelled = computeFullCost(readings, tariff, retailPlan, losses);
 
   // Annualise from the data period (handles 1-month vs 1-year data).
   const annualF = modelled.days > 0 ? 365 / modelled.days : 1;
@@ -141,25 +147,22 @@ export default async function ClientReport({
     kvaBilled,
   });
 
-  // Solar (value a self-consumed kWh at the full avoided daytime volumetric stack).
-  const avoidedRate = marginalEnergyRatePerKwh(tariff, "peak", losses);
+  // Solar: value a self-consumed daytime kWh at the avoided network volume + retail stack.
+  const avoidedRate =
+    marginalEnergyRatePerKwh(tariff, "peak", losses) +
+    retailMarginalPeakRate(retailPlan, losses);
   const solar = recommendSolar(readings, avoidedRate, {
     gridEmissionsTPerMwh: factor,
   });
 
-  // Retail benchmark (futures-derived; input-driven, not scraped).
+  // Retail benchmark (futures-derived; input-driven, not scraped). Actual variable rate is
+  // the per-kWh retail charges (energy + environmental + market) from this NMI's plan.
   const actualRetailVariableRate = (() => {
-    let dollars = 0;
-    for (const ch of tariff.charges) {
-      if (ch.kind !== "energy" || ch.category !== "retail") continue;
-      const kwh = ch.period === "all" ? summary.importKwh : modelled.energyByPeriod[ch.period];
-      const lossMult = (ch.losses ?? []).reduce(
-        (m, l) => m * (l === "MLF" ? losses.mlf ?? 1 : losses.dlf ?? 1),
-        1,
-      );
-      dollars += ch.rate * kwh * lossMult;
-    }
-    return summary.importKwh > 0 ? dollars / summary.importKwh : 0;
+    const ret = computeRetailCost(readings, retailPlan, losses);
+    const variable = ret.lines
+      .filter((l) => l.label !== "Retail supply" && l.label !== "Metering")
+      .reduce((sum, l) => sum + l.amount, 0);
+    return summary.importKwh > 0 ? variable / summary.importKwh : 0;
   })();
   const benchmarkRate = marketPrice
     ? benchmarkRetailEnergyRate(marketPrice.futuresPerMwh, {
@@ -183,7 +186,7 @@ export default async function ClientReport({
         const d = r.intervalStart.slice(0, 10);
         return d >= b.periodStart && d <= b.periodEnd;
       });
-      return { bill: b, cost: computeCost(inPeriod, bt, losses) };
+      return { bill: b, cost: computeFullCost(inPeriod, bt, retailPlan, losses) };
     })
     .map(({ bill, cost }) => ({ bill, cost, recon: reconcile(cost.total, bill.billedTotal) }));
 
@@ -370,11 +373,12 @@ export default async function ClientReport({
               {ranked.map((o) => (
                 <tr key={o.tariff.code} className={o.tariff.code === tariff.code ? "font-medium" : ""}>
                   <td className="py-1.5">{o.tariff.name}{o.tariff.code === tariff.code ? " (current)" : ""}</td>
-                  <td className="py-1.5 text-right tabular-nums">{moneyLabel(o.cost.total * annualF)}/yr</td>
+                  <td className="py-1.5 text-right tabular-nums">{moneyLabel(o.cost.total * annualF)}/yr network</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          <p className="mt-1 text-[11px] text-black/50">Network cost only — retail is unchanged by a network tariff switch.</p>
         </Section>
 
         <Section title="Retail contract benchmark">

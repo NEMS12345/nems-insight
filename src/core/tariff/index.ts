@@ -4,6 +4,7 @@ export * from "@/core/tariff/periods";
 export * from "@/core/tariff/engine";
 export * from "@/core/tariff/compare";
 export * from "@/core/tariff/energex";
+export * from "@/core/tariff/retail";
 export * from "@/core/tariff/reconciliation";
 export * from "@/core/tariff/benchmark";
 export { powerFactorCorrectionCase, type PowerFactorCase } from "@/core/tariff/powerFactor";
