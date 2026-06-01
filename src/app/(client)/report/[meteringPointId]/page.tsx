@@ -7,6 +7,7 @@ import { getSite } from "@/data/repositories/sites";
 import { getClient } from "@/data/repositories/clients";
 import { listBillsForMeteringPoint } from "@/data/repositories/bills";
 import { getLatestMarketPrice } from "@/data/repositories/marketPrices";
+import { getLatestEmissionsFactor } from "@/data/repositories/emissionsFactors";
 import {
   consumptionSummary,
   peakDemand,
@@ -22,6 +23,7 @@ import {
   scope2,
   emissionsAvoided,
   ngaFactor,
+  NGA_FACTOR_YEAR,
 } from "@/core/analytics";
 import {
   computeCost,
@@ -92,6 +94,9 @@ export default async function ClientReport({
   const losses: LossFactors = { mlf: mp.mlf ?? undefined, dlf: mp.dlf ?? undefined };
   const region = site?.state ?? "QLD";
   const marketPrice = await getLatestMarketPrice(region);
+  const factorOverride = await getLatestEmissionsFactor(region);
+  const factor = factorOverride?.factorTPerMwh ?? ngaFactor(region);
+  const factorYear = factorOverride?.ngaYear ?? NGA_FACTOR_YEAR;
 
   const summary = consumptionSummary(readings);
   const peak = peakDemand(readings);
@@ -139,7 +144,7 @@ export default async function ClientReport({
   // Solar (value a self-consumed kWh at the full avoided daytime volumetric stack).
   const avoidedRate = marginalEnergyRatePerKwh(tariff, "peak", losses);
   const solar = recommendSolar(readings, avoidedRate, {
-    gridEmissionsTPerMwh: ngaFactor(site?.state),
+    gridEmissionsTPerMwh: factor,
   });
 
   // Retail benchmark (futures-derived; input-driven, not scraped).
@@ -166,8 +171,7 @@ export default async function ClientReport({
       ? compareRetailRate(actualRetailVariableRate, benchmarkRate, annualKwh)
       : null;
 
-  // Emissions (annualised; NGA location-based, state factor).
-  const factor = ngaFactor(site?.state);
+  // Emissions (annualised; NGA location-based, operator factor or default).
   const emissions = scope2(annualKwh, factor);
   const solarCo2 = emissionsAvoided(solar.annualGenerationKwh, factor);
 
@@ -448,7 +452,7 @@ export default async function ClientReport({
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
             <Metric label="Location-based" value={`${emissions.locationTonnes.toFixed(0)} t CO₂-e/yr`} />
             <Metric label="Solar offset" value={`${solarCo2.toFixed(0)} t CO₂-e/yr`} />
-            <Metric label="NGA factor" value={`${factor} t/MWh`} sub={emissions.factorYear} />
+            <Metric label="NGA factor" value={`${factor} t/MWh`} sub={factorYear} />
           </div>
           <p className="mt-2 text-[11px] text-black/50">
             Location-based Scope 2 using the NGA state factor. Market-based would be lower with GreenPower/LGCs/PPA.

@@ -2,15 +2,24 @@ import Link from "next/link";
 import { listClients } from "@/data/repositories/clients";
 import { clientEnergies } from "@/data/repositories/rollups";
 import { getLatestMarketPrice } from "@/data/repositories/marketPrices";
+import { getLatestEmissionsFactor } from "@/data/repositories/emissionsFactors";
+import { ngaFactor, NGA_FACTOR_YEAR } from "@/core/analytics";
 import { energyLabel } from "@/lib/format";
-import { createClientAction, createMarketPriceAction } from "./actions";
+import {
+  createClientAction,
+  createMarketPriceAction,
+  createEmissionsFactorAction,
+} from "./actions";
 
 export default async function ClientsPage() {
-  const [clients, energies, qldPrice] = await Promise.all([
+  const [clients, energies, qldPrice, qldFactor] = await Promise.all([
     listClients(),
     clientEnergies(),
     getLatestMarketPrice("QLD"),
+    getLatestEmissionsFactor("QLD"),
   ]);
+  const emissionsFactorValue = qldFactor?.factorTPerMwh ?? ngaFactor("QLD");
+  const emissionsFactorSource = qldFactor?.ngaYear ?? `${NGA_FACTOR_YEAR} (default)`;
 
   const portfolioKwh = [...energies.values()].reduce(
     (sum, e) => sum + e.importKwh,
@@ -57,6 +66,43 @@ export default async function ClientsPage() {
             className="rounded bg-foreground px-3 py-2 text-sm text-background"
           >
             Save today&apos;s rate
+          </button>
+        </form>
+      </section>
+
+      <section className="rounded border border-black/10 bg-black/[0.02] p-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-medium">Emissions factor (NGA, QLD)</h2>
+          <span className="text-sm text-foreground/60">
+            {emissionsFactorValue} t CO₂-e/MWh · {emissionsFactorSource}
+          </span>
+        </div>
+        <form action={createEmissionsFactorAction} className="mt-3 flex items-end gap-3">
+          <input type="hidden" name="region" value="QLD" />
+          <label className="flex flex-col gap-1 text-xs text-foreground/60">
+            NGA Scope 2 factor (t CO₂-e/MWh)
+            <input
+              name="factorTPerMwh"
+              type="number"
+              step="0.00001"
+              required
+              placeholder="e.g. 0.71"
+              className="rounded border border-black/15 px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-foreground/60">
+            NGA year/source
+            <input
+              name="ngaYear"
+              placeholder="e.g. NGA 2024"
+              className="rounded border border-black/15 px-3 py-2 text-sm"
+            />
+          </label>
+          <button
+            type="submit"
+            className="rounded bg-foreground px-3 py-2 text-sm text-background"
+          >
+            Save factor
           </button>
         </form>
       </section>

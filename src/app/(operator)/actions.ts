@@ -22,6 +22,7 @@ import { readMeterProfileRows } from "@/ingestion/parsers/xlsxRows";
 import type { ParsedReading, ParseResult } from "@/ingestion/types";
 import { createBill } from "@/data/repositories/bills";
 import { createMarketPrice } from "@/data/repositories/marketPrices";
+import { createEmissionsFactor } from "@/data/repositories/emissionsFactors";
 import { getTariff } from "@/core/tariff";
 import { createSupabaseServerClient } from "@/data/supabase/server";
 import type { Client } from "@/core/types";
@@ -242,6 +243,23 @@ export async function createMarketPriceAction(formData: FormData) {
   if (!Number.isFinite(futures) || futures <= 0) return;
 
   await createMarketPrice({ orgId: ctx.orgId, region, futuresPerMwh: futures });
+  revalidatePath("/");
+}
+
+export async function createEmissionsFactorAction(formData: FormData) {
+  const ctx = await getOperatorContext();
+  if (!ctx) redirect("/login");
+
+  const region = str(formData, "region") || "QLD";
+  const factor = Number(str(formData, "factorTPerMwh"));
+  if (!Number.isFinite(factor) || factor <= 0) return;
+
+  await createEmissionsFactor({
+    orgId: ctx.orgId,
+    region,
+    factorTPerMwh: factor,
+    ngaYear: str(formData, "ngaYear") || undefined,
+  });
   revalidatePath("/");
 }
 
