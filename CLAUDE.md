@@ -176,7 +176,16 @@ helpers in `src/core/analytics/time.ts` are being superseded by this module.
    line items, total) via a form; original PDF stored for reference. **NOT automated PDF
    parsing.**
 4. **Tariff + cost engine — Energex (SE QLD) only** — energy by time-of-use, demand per the
-   tariff rule, fixed charges; cost computed from interval data. Tariffs are DATA.
+   tariff rule, fixed charges; cost computed from interval data. Tariffs are DATA. The
+   tariff **schema** is general enough for any NEM DNSP (`src/core/tariff/schema/`):
+   effective-dated, with standing/fixed charges, flat or seasonal time-of-use energy by
+   day-type (weekday/weekend/public-holiday), kW/kVA demand with chargeable window, reset
+   (monthly/annual) and ratchet, stepped/block rates, controlled-load (separate) tariffs and
+   import/export direction. Only **Energex is populated** for v1; Ausgrid (NSW) and SA Power
+   Networks are **structure-only fixtures** with clearly-marked placeholder figures (never
+   fabricated pricing) — adding a real DNSP is a data edit, not an engine change. A
+   `validateTariff` checker and a per-state public-holiday calendar (QLD populated) back the
+   schema. The cost engine that consumes this schema is built in this phase (Phase 4).
 5. **Reconciliation** — modelled cost vs. billed cost, discrepancies flagged. *Headline.*
 6. **Analytics** — consumption, demand/peak, power factor, cost breakdown; portfolio
    rollup with drill-down to site and metering point.
@@ -211,7 +220,7 @@ helpers in `src/core/analytics/time.ts` are being superseded by this module.
 | 1. Data foundation | Schema + migrations, RLS, auth, operator login, seed | Log in, create client → site → NMI |
 | 2. NEM12 ingestion | Parser (all channels), upload, validation, gap/quality flag, raw storage, audit | Drag in a NEM12 file, see data land |
 | 3. Analytics core | Pure, unit-tested: consumption, demand, power factor, load profile | See charts for a NMI/site |
-| 4. Tariff + cost + reconciliation | Energex tariff model, bill entry, cost-from-intervals, computed-vs-billed | See where the bill disagrees |
+| 4. Tariff + cost + reconciliation | General tariff schema + validator (DONE; Energex populated, others structure-only), bill entry, cost-from-intervals engine, component-wise computed-vs-billed | See where the bill disagrees |
 | 5. Portfolio rollup | Client → site → metering-point nav and aggregation | See whole portfolio, drill down |
 | 6. Client report | The clean read-only export | Hand a client a report — **MVP done** |
 
