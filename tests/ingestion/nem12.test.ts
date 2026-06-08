@@ -119,3 +119,55 @@ describe("parseNem12", () => {
     expect(res.warnings.some((w) => w.includes("100 header"))).toBe(true);
   });
 });
+
+describe("parseNem12 — DST transition days", () => {
+  // 30-min 300 record with `n` values for a given date.
+  const row = (date: string, n: number) =>
+    [
+      "100,NEM12,200401021200,MDP,RET",
+      `200,${NMI},E1,E1,E1,N1,M1,KWH,30,20240102`,
+      `300,${date},${Array(n).fill(1).join(",")},A,,,20240102000000,20240102000000`,
+      "900",
+    ].join("\n");
+
+  // NSW/VIC: DST ends first Sunday of April (fall back, 25h) and starts first Sunday of
+  // October (spring forward, 23h). 2025: 6 Apr and 5 Oct.
+  const FALL_BACK = "20250406";
+  const SPRING_FWD = "20251005";
+
+  it("parses a fall-back day as 50 intervals (not 48) and flags it", () => {
+    const res = parseNem12(row(FALL_BACK, 50), { timeBasis: "local", observesDst: true });
+    expect(res.errors).toEqual([]);
+    expect(res.readings).toHaveLength(50);
+    expect(res.warnings.some((w) => /fall-back/i.test(w))).toBe(true);
+    // The 02:00–03:00 hour repeats: once at +11:00 (AEDT) then again at +10:00 (AEST).
+    const at0200 = res.readings.filter((r) => r.intervalStart.includes("T02:00:00"));
+    expect(at0200.map((r) => r.intervalStart)).toEqual([
+      "2025-04-06T02:00:00+11:00",
+      "2025-04-06T02:00:00+10:00",
+    ]);
+    expect(res.readings[49].intervalStart).toBe("2025-04-06T23:30:00+10:00");
+  });
+
+  it("parses a spring-forward day as 46 intervals (not 48) and flags it", () => {
+    const res = parseNem12(row(SPRING_FWD, 46), { timeBasis: "local", observesDst: true });
+    expect(res.errors).toEqual([]);
+    expect(res.readings).toHaveLength(46);
+    expect(res.warnings.some((w) => /spring-forward/i.test(w))).toBe(true);
+    // 02:00–03:00 is skipped: there is no 02:00, and the clock jumps to 03:00 at +11:00.
+    expect(res.readings.some((r) => r.intervalStart.includes("T02:00:00"))).toBe(false);
+    expect(res.readings[4].intervalStart).toBe("2025-10-05T03:00:00+11:00");
+  });
+
+  it("market basis (default) still parses an odd count but flags a possible local-time file", () => {
+    const res = parseNem12(row(FALL_BACK, 50));
+    expect(res.readings).toHaveLength(50); // not dropped
+    expect(res.warnings.some((w) => /local time|timeBasis/i.test(w))).toBe(true);
+  });
+
+  it("a normal 48-interval day raises no anomaly warning", () => {
+    const res = parseNem12(row("20240701", 48));
+    expect(res.readings).toHaveLength(48);
+    expect(res.warnings.some((w) => /anomaly|DST/i.test(w))).toBe(false);
+  });
+});
