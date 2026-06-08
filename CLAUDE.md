@@ -212,3 +212,16 @@ Ingestion (Phase 2) and the engine (Phase 4) get the most care and tests.
   roadmap; help cut, not add.
 - **Secrets never go in the repo.** Use `.env.local` (git-ignored) and Vercel env vars.
   See `.env.example` for required variables.
+
+---
+
+## 9. Testing & tooling
+
+- **Test runner: Vitest.** Run the suite with `npm test` (`vitest run`); `npm run test:watch`
+  for watch mode. Tests live in `tests/**` mirroring the source layout, plus golden-file
+  fixtures alongside the code they exercise.
+- The pure core (`src/core/**`) and ingestion (`src/ingestion/**`) get the most tests — that
+  is where the money logic lives. Aim for unit tests on every core module added.
+- Other scripts: `npm run typecheck` (`tsc --noEmit`), `npm run lint` (`next lint`),
+  `npm run build`. Keep all four green before committing.
+
