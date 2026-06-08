@@ -72,6 +72,8 @@ src/
   core/          LAYER 2 — pure analytics + tariff/cost engine. NO framework/DB/other-layer imports.
     analytics/     consumption, demand/peak, power factor, load profiles
     tariff/        tariff + cost engine (data-driven; tariffs are DATA, not if/else code)
+                     schema/  general DNSP tariff schema + validator + per-DNSP schedules
+    reconciliation/ component-wise modelled-vs-billed comparison (the headline feature)
     time/          the ONLY place timezone conversion happens (NEM time <-> absolute <-> site-local)
     types/         shared domain types (Client, Site, MeteringPoint, IntervalReading...)
   ingestion/     LAYER 1 — messy data -> clean, validated readings
@@ -119,9 +121,13 @@ Bills ARE tables (operator-entered facts):
 | `bill` | One entered retailer bill | `client_id`, `metering_point_id`, retailer, `tariff_code`, period, `billed_total` (ex-GST) |
 | `bill_line_item` | Optional bill breakdown | `bill_id`, `client_id`, label, category, amount |
 
-Reconciliation (`src/core/tariff/reconciliation.ts`) compares the modelled cost (engine over
-interval data for the bill's period + tariff) against `billed_total`, flagging
-match / review / investigate. Two Energex tariffs are modelled: **7200** (SAC Large TOU,
+Reconciliation compares the modelled cost (engine over interval data for the bill's period +
+tariff) against the billed cost. A total-level check lives in
+`src/core/tariff/reconciliation.ts`; the forward-looking **component-wise** check is
+`src/core/reconciliation/` — a canonical bill-component taxonomy, each component tagged
+modelled vs declared pass-through, returning per-component variance ($ and %), a modelled-only
+bottom line (pass-through excluded), and a confidence downgrade on heavily-estimated months,
+flagging match / review / investigate. Two Energex tariffs are modelled: **7200** (SAC Large TOU,
 kW demand) and **7400** (11kV TOU Demand, kVA demand) — each metering point records its
 `tariff_code`. The 7400 network rates + the **Origin retail rates** layered on top are
 derived from a real Origin invoice. Retail energy is true TOU (peak assumed 7am–9pm
@@ -186,7 +192,12 @@ helpers in `src/core/analytics/time.ts` are being superseded by this module.
    fabricated pricing) — adding a real DNSP is a data edit, not an engine change. A
    `validateTariff` checker and a per-state public-holiday calendar (QLD populated) back the
    schema. The cost engine that consumes this schema is built in this phase (Phase 4).
-5. **Reconciliation** — modelled cost vs. billed cost, discrepancies flagged. *Headline.*
+5. **Reconciliation** — modelled cost vs. billed cost, **component by component**
+   (`src/core/reconciliation/`): a canonical bill-component taxonomy (energy by ToU, demand,
+   supply/fixed, other network, environmental certs, metering, market/AEMO fees, retailer
+   fixed, GST, other), each tagged modelled vs declared pass-through. Pass-through lines are
+   reported but excluded from the billing-error judgement; estimated-data % lowers confidence
+   rather than manufacturing errors; dual ($ + %) tolerances. Discrepancies flagged. *Headline.*
 6. **Analytics** — consumption, demand/peak, power factor, cost breakdown; portfolio
    rollup with drill-down to site and metering point.
 7. **Client report / export** — one clean, print-optimised read-only deliverable
