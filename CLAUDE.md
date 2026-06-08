@@ -72,6 +72,7 @@ src/
   core/          LAYER 2 — pure analytics + tariff/cost engine. NO framework/DB/other-layer imports.
     analytics/     consumption, demand/peak, power factor, load profiles
     tariff/        tariff + cost engine (data-driven; tariffs are DATA, not if/else code)
+    time/          the ONLY place timezone conversion happens (NEM time <-> absolute <-> site-local)
     types/         shared domain types (Client, Site, MeteringPoint, IntervalReading...)
   ingestion/     LAYER 1 — messy data -> clean, validated readings
     parsers/       one adapter per format (NEM12 first)
@@ -141,6 +142,24 @@ tracks the actual load shape.
    but the abstraction stays general so other meter types can be added later.
 4. **Demand definition comes from the tariff, not hardcoded.** The engine reads the demand
    rule (window, kVA vs kW) from the network tariff config.
+5. **Time is stored as absolute instants; time-of-use is judged in local clock time.**
+   Interval timestamps are stored as absolute instants (Postgres `timestamptz`). Incoming
+   NEM12 timestamps are interpreted in ONE documented **source basis**, defaulting to
+   **NEM time = AEST (UTC+10, no daylight saving)** — the market basis NEM12 is recorded
+   in. Time-of-use windows are then evaluated in the **site's LOCAL clock time** via an
+   IANA `timezone` on the site (e.g. `Australia/Brisbane`), so ToU bucketing stays correct
+   across daylight-saving transitions in DST states (NSW/VIC/ACT/TAS/SA). QLD (and WA/NT)
+   do not observe DST, so for Energex/SE-QLD sites local time == NEM time year-round.
+
+### Time-handling note (single source of truth)
+All timezone conversion lives in **`src/core/time`** — nowhere else converts between
+zones. It exposes the NEM-time constant/basis, `nem12IntervalToInstant(date, index,
+length, basis?)` (NEM12 calendar day + interval index → absolute instant; the source
+basis is an explicit parameter defaulting to NEM time), and `instantToLocalParts(instant,
+timezone)` (absolute instant → site-local wall-clock parts for ToU bucketing). The basis
+is configurable for the rare local-time-recorded source. Tested across Australia/Sydney
+spring-forward + fall-back days and Australia/Brisbane (no DST). The legacy fixed-+10
+helpers in `src/core/analytics/time.ts` are being superseded by this module.
 
 ---
 

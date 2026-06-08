@@ -47,6 +47,12 @@ export interface Site {
   address?: string;
   state?: string; // AU state/territory, e.g. "QLD"
   network?: string; // DNSP, e.g. "Energex"
+  /**
+   * IANA timezone of the premises, e.g. "Australia/Brisbane" or "Australia/Sydney".
+   * Time-of-use windows are evaluated in this LOCAL clock time so ToU bucketing stays
+   * correct across daylight-saving transitions. See src/core/time and CLAUDE.md §5.
+   */
+  timezone?: string;
   /** Optional gross floor area (m²) for energy-intensity reporting. */
   floorAreaM2?: number;
 }
