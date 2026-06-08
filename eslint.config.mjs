@@ -46,6 +46,32 @@ const eslintConfig = [
       ],
     },
   },
+
+  // Trust boundary: the SERVICE-ROLE Supabase client bypasses Row-Level Security, so it must
+  // live ONLY in src/data and never be imported by another layer. src/core already forbids all
+  // of @/data (purity rule above); this covers the remaining layers. The rule may sit dormant
+  // until the `@/data/service-role` module exists. See CLAUDE.md §3.
+  {
+    files: [
+      "src/ingestion/**/*.{ts,tsx}",
+      "src/app/**/*.{ts,tsx}",
+      "src/components/**/*.{ts,tsx}",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/data/service-role", "@/data/service-role/*"],
+              message:
+                "The service-role Supabase client bypasses RLS — it may ONLY be imported inside src/data. See CLAUDE.md §3.",
+            },
+          ],
+        },
+      ],
+    },
+  },
 ];
 
 export default eslintConfig;

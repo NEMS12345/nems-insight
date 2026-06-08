@@ -63,6 +63,73 @@ Even though only operators log in for v1, we build proper tenant isolation **now
 Retrofitting tenancy into a single-tenant DB is the classic expensive rebuild. We avoid it
 by doing it up front while greenfield.
 
+### The write-path trust boundary (closing the RLS hole)
+RLS protects the **read** path. It does **not** protect the write path when the server uses
+the **service-role key**, which **bypasses RLS entirely**. Ingestion runs server-side with the
+service role (it must, to write on the operator's behalf), so RLS alone cannot guarantee that a
+derived row (e.g. an `interval_reading`) is stamped with the *correct* `client_id`. State this
+plainly: **the write-side guarantee is NOT RLS.** It is three things working together:
+
+1. **`client_id NOT NULL` on every client-owned table** — a row with no tenant can't be written.
+2. **Composite foreign keys that chain `client_id` down the hierarchy** — a child row's
+   `client_id` must match its parent's, enforced by the DB, so a derived row cannot be
+   misattributed to the wrong client even by buggy server code.
+3. **An ingestion assertion** that every derived row carries the operator-selected `client_id`
+   (defence in depth above the FK chain).
+
+Because the service role bypasses RLS, the service-role client is confined to `src/data/**`
+(see §8; an ESLint rule enforces it). Everything else goes through repositories.
+
+**Canonical migration SQL pattern (the Phase 1 spec — build to this):** every client-owned
+table denormalises `client_id` and the FK to its parent is composite, including `client_id`:
+
+```sql
+-- Parent of the chain. client_id is the tenant key; UNIQUE(id, client_id) lets children
+-- reference it compositely.
+create table client (
+  id          uuid primary key default gen_random_uuid(),
+  org_id      uuid not null references organisation(id),
+  name        text not null,
+  -- ...
+  unique (id)                     -- id is already unique (PK); see composite targets below
+);
+
+create table site (
+  id          uuid primary key default gen_random_uuid(),
+  client_id   uuid not null references client(id),
+  name        text not null,
+  -- ...
+  unique (id, client_id)          -- composite target for children
+);
+
+create table metering_point (
+  id          uuid primary key default gen_random_uuid(),
+  client_id   uuid not null,                       -- denormalised down the hierarchy
+  site_id     uuid not null,
+  nmi         text not null,
+  -- ...
+  foreign key (site_id, client_id)                 -- COMPOSITE FK: child client_id must
+    references site (id, client_id),               -- equal the parent's client_id
+  unique (id, client_id)
+);
+
+create table interval_reading (
+  id                 bigint generated always as identity primary key,
+  client_id          uuid not null,                -- denormalised to the leaf
+  metering_point_id  uuid not null,
+  channel            text not null,
+  interval_start     timestamptz not null,
+  -- ...
+  foreign key (metering_point_id, client_id)       -- COMPOSITE FK chains client_id to the leaf
+    references metering_point (id, client_id)
+);
+```
+
+The chain is `client(id) ← site(id, client_id) ← metering_point(id, client_id) ←
+interval_reading(metering_point_id, client_id)`. Bills follow the same pattern
+(`bill`/`bill_line_item` carry `client_id`, composite-FK'd to their parent). RLS policies on
+top of this restrict reads by `client_id`; the composite FKs + NOT NULL keep writes honest.
+
 ---
 
 ## 4. Repo structure
@@ -108,6 +175,11 @@ Hierarchy: **organisation -> client (portfolio) -> site -> metering point (NMI) 
 | `interval_reading` | The time-series | `metering_point_id`, `channel`, `interval_start` (timestamptz), `interval_length`, `value`, `unit`, `quality_flag` |
 | `import_batch` | One row per uploaded file | uploader, time, detected format, status, row counts, errors |
 | `raw_file` | Original uploaded file, kept verbatim in Supabase Storage | so we can re-parse from source |
+
+**Every client-owned table carries `client_id NOT NULL`, denormalised down the hierarchy, with
+composite foreign keys chaining `client_id` from `client` to the leaf** (`site`,
+`metering_point`, `interval_reading`, `bill`, `bill_line_item`). This is the write-side tenant
+guarantee — see §3 for why (the service role bypasses RLS) and the canonical migration SQL.
 
 **Tariffs are DATA-IN-CODE, not DB tables** (`src/core/tariff/energex.ts`): a `Tariff` is a
 declarative list of charges (fixed/energy-ToU/monthly-demand) + time-of-use window
@@ -251,6 +323,10 @@ Ingestion (Phase 2) and the engine (Phase 4) get the most care and tests.
   roadmap; help cut, not add.
 - **Secrets never go in the repo.** Use `.env.local` (git-ignored) and Vercel env vars.
   See `.env.example` for required variables.
+- **The service-role Supabase client lives ONLY in `src/data/**`.** It bypasses Row-Level
+  Security, so it must never be imported by another layer — everything else goes through
+  repositories. An ESLint rule enforces this (it may sit dormant until the
+  `@/data/service-role` module exists). See §3 for the trust-boundary rationale.
 
 ---
 
@@ -263,4 +339,8 @@ Ingestion (Phase 2) and the engine (Phase 4) get the most care and tests.
   is where the money logic lives. Aim for unit tests on every core module added.
 - Other scripts: `npm run typecheck` (`tsc --noEmit`), `npm run lint` (`next lint`),
   `npm run build`. Keep all four green before committing.
+- **Lint enforces two architecture boundaries** via `no-restricted-imports` (see
+  `eslint.config.mjs`): (1) `src/core/**` stays pure — no framework/DB/other-layer imports;
+  (2) the service-role Supabase client (`@/data/service-role`) may only be imported inside
+  `src/data` (it bypasses RLS — see §3/§8).
 
