@@ -99,6 +99,16 @@ export default async function ClientPage({
             />
           </div>
           <input
+            name="timezone"
+            defaultValue="Australia/Brisbane"
+            placeholder="IANA timezone (e.g. Australia/Brisbane)"
+            className="rounded border border-border px-3 py-2 text-sm"
+          />
+          <p className="-mt-2 text-xs text-foreground/50">
+            Used to bucket time-of-use in local clock time. SE QLD sites stay on
+            Australia/Brisbane (no daylight saving).
+          </p>
+          <input
             name="floorAreaM2"
             type="number"
             step="0.1"

@@ -170,7 +170,7 @@ Hierarchy: **organisation -> client (portfolio) -> site -> metering point (NMI) 
 | Table | Holds | Key fields |
 |---|---|---|
 | `client` | A customer business (the portfolio) | name, ABN, status, `org_id` |
-| `site` | A physical premises | name, address, DNSP/network, state, `client_id` |
+| `site` | A physical premises | name, address, DNSP/network, state, `timezone` (IANA, for local ToU), `client_id` |
 | `metering_point` | The NMI / parent meter | NMI, `meter_type`, `site_id` |
 | `interval_reading` | The time-series | `metering_point_id`, `channel`, `interval_start` (timestamptz), `interval_length`, `value`, `unit`, `quality_flag` |
 | `import_batch` | One row per uploaded file | uploader, time, detected format, status, row counts, errors |

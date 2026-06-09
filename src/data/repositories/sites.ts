@@ -8,10 +8,11 @@ interface SiteRow {
   address: string | null;
   state: string | null;
   network: string | null;
+  timezone: string | null;
   floor_area_m2: number | string | null;
 }
 
-const COLS = "id, client_id, name, address, state, network, floor_area_m2";
+const COLS = "id, client_id, name, address, state, network, timezone, floor_area_m2";
 
 function toSite(row: SiteRow): Site {
   return {
@@ -21,6 +22,7 @@ function toSite(row: SiteRow): Site {
     address: row.address ?? undefined,
     state: row.state ?? undefined,
     network: row.network ?? undefined,
+    timezone: row.timezone ?? undefined,
     floorAreaM2: row.floor_area_m2 === null ? undefined : Number(row.floor_area_m2),
   };
 }
@@ -53,6 +55,7 @@ export interface NewSite {
   address?: string;
   state?: string;
   network?: string;
+  timezone?: string;
   floorAreaM2?: number;
 }
 
@@ -66,6 +69,7 @@ export async function createSite(input: NewSite): Promise<Site> {
       address: input.address || null,
       state: input.state || null,
       network: input.network || null,
+      timezone: input.timezone || null,
       floor_area_m2: input.floorAreaM2 ?? null,
     })
     .select(COLS)

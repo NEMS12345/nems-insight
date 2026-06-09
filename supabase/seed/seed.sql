@@ -30,10 +30,11 @@ values ('00000000-0000-0000-0000-0000000000c1',
 on conflict (id) do nothing;
 
 -- Sample site (SE QLD / Energex — matches the v1 tariff scope)
-insert into site (id, client_id, name, address, state, network)
+insert into site (id, client_id, name, address, state, network, timezone)
 values ('00000000-0000-0000-0000-0000000000d1',
         '00000000-0000-0000-0000-0000000000c1',
-        'Acme Brisbane Plant', '10 Factory Rd, Brisbane QLD 4000', 'QLD', 'Energex')
+        'Acme Brisbane Plant', '10 Factory Rd, Brisbane QLD 4000', 'QLD', 'Energex',
+        'Australia/Brisbane')
 on conflict (id) do nothing;
 
 -- Sample metering point (NMI)

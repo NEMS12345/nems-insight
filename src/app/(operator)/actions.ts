@@ -66,6 +66,7 @@ export async function createSiteAction(formData: FormData) {
     address: str(formData, "address") || undefined,
     state: str(formData, "state") || undefined,
     network: str(formData, "network") || undefined,
+    timezone: str(formData, "timezone") || undefined,
     floorAreaM2: Number.isFinite(floorArea) && floorArea > 0 ? floorArea : undefined,
   });
 
