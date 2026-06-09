@@ -153,3 +153,78 @@ describe("golden invoice — Energex 7400 + Origin retail, July 2024 constant lo
     expect(cost.total).toBeCloseTo(expectedNetwork + expectedRetail, 2);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STRICT source validation against the REAL Origin invoice — SCAFFOLD (fill in & un-skip).
+//
+// The block above locks the engine to the invoice-DERIVED rates. To prove the engine
+// reproduces a SPECIFIC bill to the cent, copy the figures printed on the invoice into
+// REAL_INVOICE below and remove `.skip`. The shape-INDEPENDENT lines (daily/monthly/volume/
+// environmental/market/supply/metering) are validated here from the invoice's period, days and
+// total kWh alone — NO interval file is needed, because none of them depend on load shape.
+// (The shape-DEPENDENT lines — retail energy by ToU, demand — additionally need the period's
+// real NEM12 data; validate those separately once it's loaded.)
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface RealInvoice {
+  periodStart: string; // "YYYY-MM-DD"
+  periodEnd: string; // "YYYY-MM-DD", inclusive
+  totalKwh: number; // total consumption billed (E1)
+  mlf: number;
+  dlf: number;
+  // Printed EX-GST $ for each shape-independent line, exactly as on the invoice:
+  networkAccessDuos: number;
+  jurisdictionalScheme: number;
+  connectionUnit: number;
+  networkVolume: number;
+  environmental: number;
+  market: number;
+  retailSupply: number;
+  metering: number;
+}
+
+// TODO: replace with the figures from the real Origin invoice, then drop `.skip` below.
+// (Cast keeps the type as RealInvoice | null rather than narrowing to the null literal.)
+const REAL_INVOICE = null as RealInvoice | null;
+
+/** A constant load over [start, end] inclusive totalling `totalKwh` — drives days/kWh exactly. */
+function constantLoadOverPeriod(start: string, end: string, totalKwh: number): AnalyticsReading[] {
+  const days: string[] = [];
+  for (let t = Date.parse(`${start}T00:00:00Z`); t <= Date.parse(`${end}T00:00:00Z`); t += 86_400_000) {
+    days.push(new Date(t).toISOString().slice(0, 10));
+  }
+  const perInterval = totalKwh / (days.length * INTERVALS_PER_DAY);
+  const out: AnalyticsReading[] = [];
+  for (const date of days) {
+    for (let i = 0; i < INTERVALS_PER_DAY; i++) {
+      const minute = i * 30;
+      const startTs = `${date}T${pad(Math.floor(minute / 60))}:${pad(minute % 60)}:00+10:00`;
+      out.push({ channel: "E1", intervalStart: startTs, intervalLength: 30, value: perInterval, unit: "kWh", quality: "actual" });
+    }
+  }
+  return out;
+}
+
+describe.skip("STRICT — real Origin invoice, shape-independent lines to the cent", () => {
+  it("reproduces each shape-independent line printed on the invoice", () => {
+    const inv = REAL_INVOICE;
+    if (!inv) throw new Error("Fill in REAL_INVOICE from the actual invoice, then remove .skip.");
+
+    const readings = constantLoadOverPeriod(inv.periodStart, inv.periodEnd, inv.totalKwh);
+    const cost = computeFullCost(readings, ENERGEX_7400, DEFAULT_RETAIL_PLAN, { mlf: inv.mlf, dlf: inv.dlf });
+    const amt = (label: string): number => {
+      const line = cost.lines.find((l) => l.label === label);
+      if (!line) throw new Error(`missing cost line: ${label}`);
+      return line.amount;
+    };
+
+    expect(amt("Network access (DUOS)")).toBeCloseTo(inv.networkAccessDuos, 2);
+    expect(amt("Jurisdictional scheme (fixed)")).toBeCloseTo(inv.jurisdictionalScheme, 2);
+    expect(amt("DUOS connection unit charge")).toBeCloseTo(inv.connectionUnit, 2);
+    expect(amt("Network volume (DUOS+TUOS+JS)")).toBeCloseTo(inv.networkVolume, 2);
+    expect(amt("Environmental (SREC + LREC)")).toBeCloseTo(inv.environmental, 2);
+    expect(amt("Regulated / market (AEMO)")).toBeCloseTo(inv.market, 2);
+    expect(amt("Retail supply")).toBeCloseTo(inv.retailSupply, 2);
+    expect(amt("Metering")).toBeCloseTo(inv.metering, 2);
+  });
+});
