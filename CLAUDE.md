@@ -461,9 +461,17 @@ Ingestion (Phase 2) and the engine (Phase 4) get the most care and tests.
   (`tests/core/invoice-golden.test.ts`) — pins the Energex 7400 + Origin cost engine output
   line-by-line to the cent against a *literal re-typed copy* of the invoice-derived rates, so a
   silent rate or engine-math change now fails the suite, and the loss discipline (network volume
-  = none, retail energy = MLF×DLF, environmental/market = DLF) is locked. It uses a fully-derived
-  synthetic period; the remaining step for *strict* source validation is swapping in the real
-  invoice's interval data + printed line totals (needs the PDF). (2) **§6 scope drift —
+  = none, retail energy = MLF×DLF, environmental/market = DLF) is locked. **Strict source
+  validation DONE** against a real Origin invoice (QB04077571, Energex 7400, Mar 2026, $42,542.08
+  ex-GST): the engine reproduces network, demand and peak-energy **to the cent** and the whole
+  bill to **~4c on $42.5k**. Two documented few-cents residuals remain (real modelling choices,
+  not errors): environmental uses one combined certificate-adjusted rate where the invoice rounds
+  SREC/LREC separately (~3c); regulated/AEMO is applied to total consumption vs the invoice's
+  net-of-export kWh (~1c). **New finding to action:** the DUOS *connection unit charge* is
+  modelled as a flat `fixed_monthly` $1719.07, but the invoice bills it as **245.582 $/day × 7
+  days** — equal *only by coincidence* this period (245.582×7≈1719.07); for any other day-count
+  the model would be wrong. Needs domain clarification (what is the "7"? does it vary?) before
+  generalising. (2) **§6 scope drift —
   resolved:** §6 item 7 now lists the report's operational findings, retail-contract benchmark
   and electricity Scope 2/3 emissions, and the NOT-in-v1 list scopes emissions precisely
   (electricity Scope 2/3 shipped; full carbon accounting / offsets / carbon-neutral claims stay
