@@ -44,3 +44,45 @@ export interface BillComponent {
 export function componentKey(c: Pick<BillComponent, "kind" | "subKey">): string {
   return `${c.kind}:${c.subKey ?? ""}`;
 }
+
+/** Inverse of {@link componentKey}: parse a stored "kind:subKey" string back into parts. */
+export function parseComponentKey(key: string): { kind: ComponentKind; subKey?: string } {
+  const idx = key.indexOf(":");
+  const kind = (idx >= 0 ? key.slice(0, idx) : key) as ComponentKind;
+  const subKey = idx >= 0 ? key.slice(idx + 1) : "";
+  return { kind, subKey: subKey || undefined };
+}
+
+/** Components we report but do NOT independently model — a variance here is informational. */
+const PASS_THROUGH: ReadonlySet<ComponentKind> = new Set<ComponentKind>([
+  "environmental",
+  "market_fees",
+  "gst",
+]);
+
+/** Whether a component kind is a declared pass-through (vs independently modelled). */
+export function natureOf(kind: ComponentKind): ComponentNature {
+  return PASS_THROUGH.has(kind) ? "pass-through" : "modelled";
+}
+
+/** Human label for a component kind (sub-bucket-agnostic). */
+export const COMPONENT_LABEL: Record<ComponentKind, string> = {
+  energy: "Energy",
+  demand: "Demand",
+  supply: "Supply / fixed",
+  network_other: "Other network",
+  environmental: "Environmental certs",
+  metering: "Metering",
+  market_fees: "Market / AEMO fees",
+  retailer_fixed: "Retailer fixed",
+  gst: "GST",
+  other: "Other",
+};
+
+/** Human label for an energy sub-bucket (ToU period). */
+export const ENERGY_PERIOD_LABEL: Record<string, string> = {
+  peak: "Energy — peak",
+  shoulder: "Energy — shoulder",
+  offpeak: "Energy — off-peak",
+  all: "Energy",
+};

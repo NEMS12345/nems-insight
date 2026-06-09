@@ -69,12 +69,12 @@ export function computeRetailCost(
   const dayCount = days.size;
 
   const lines: CostLine[] = [
-    { label: "Retail energy (peak)", category: "retail", amount: peakKwh * plan.peakRatePerKwh * energyLoss },
-    { label: "Retail energy (off-peak)", category: "retail", amount: offpeakKwh * plan.offpeakRatePerKwh * energyLoss },
-    { label: "Environmental (SREC + LREC)", category: "retail", amount: totalKwh * plan.environmentalPerKwh * dlf },
-    { label: "Regulated / market (AEMO)", category: "retail", amount: totalKwh * plan.marketPerKwh * dlf },
-    { label: "Retail supply", category: "retail", amount: dayCount * plan.supplyPerDay },
-    { label: "Metering", category: "retail", amount: dayCount * plan.meteringPerDay },
+    { label: "Retail energy (peak)", category: "retail", amount: peakKwh * plan.peakRatePerKwh * energyLoss, component: "energy", subKey: "peak" },
+    { label: "Retail energy (off-peak)", category: "retail", amount: offpeakKwh * plan.offpeakRatePerKwh * energyLoss, component: "energy", subKey: "offpeak" },
+    { label: "Environmental (SREC + LREC)", category: "retail", amount: totalKwh * plan.environmentalPerKwh * dlf, component: "environmental" },
+    { label: "Regulated / market (AEMO)", category: "retail", amount: totalKwh * plan.marketPerKwh * dlf, component: "market_fees" },
+    { label: "Retail supply", category: "retail", amount: dayCount * plan.supplyPerDay, component: "supply" },
+    { label: "Metering", category: "retail", amount: dayCount * plan.meteringPerDay, component: "metering" },
   ];
 
   return { lines, total: lines.reduce((s, l) => s + l.amount, 0) };

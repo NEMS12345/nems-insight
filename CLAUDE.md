@@ -419,10 +419,22 @@ Ingestion (Phase 2) and the engine (Phase 4) get the most care and tests.
   reactive→assumed-PF→kW), explicit loss factors, plus `eligibility`, `compare`, `benchmark`,
   `demand` (shave saving) and `retail`. **One ToU classifier** (`classifyPeriod` in
   `periods.ts`) is shared by engine/demand/retail — honouring the Phase 3→4 "one bucketing path"
-  intent. Bill entry (`createBillAction` → `bill`/`bill_line_item`). Reconciliation:
-  component-wise (`src/core/reconciliation`: taxonomy + `reconcile`, dual $/% tolerance,
-  pass-through excluded from the error judgement, estimated-data → low-confidence) plus a
-  total-level check (`src/core/tariff/reconciliation.ts`).
+  intent. Reconciliation: component-wise (`src/core/reconciliation`: taxonomy + `reconcile`,
+  dual $/% tolerance, pass-through excluded from the error judgement, estimated-data → low-
+  confidence) plus a total-level check (`src/core/tariff/reconciliation.ts`).
+- **Headline feature wired end-to-end (component-wise reconciliation).** Earlier the
+  component-wise engine existed and was tested but **nothing rendered it** — both UIs showed only
+  the total-level `reconcile`, and bill entry captured only a single total, so there was no billed
+  side to compare against. Now closed: the operator enters a bill as **canonical component
+  buckets** (energy peak/shoulder/off-peak, demand, supply, metering, environmental, market,
+  other) which persist as `bill_line_item` rows keyed by the taxonomy (`0014_bill_line_item_
+  component.sql` adds `bill_line_item.component`). Each `CostLine` now carries its taxonomy
+  `component`/`subKey`; `modelledComponents(CostResult)` maps the modelled cost to the same
+  buckets (distributing a flat "all" energy charge across ToU by energy share), `billedComponents`
+  maps the entered buckets, and `reconcile` compares them. A shared `<ReconciliationTable>` renders
+  the per-component modelled-vs-billed variance ($/%, status, judgement banner) in **both** the
+  operator metering-point page and the client report. Bills entered before this (total only) fall
+  back to the total-level check.
 - **Phase 5 (portfolio rollup) done:** `rollups` repo (`clientEnergies`, `clientEnergy`,
   `siteEnergiesForClient`, `meteringPointEnergiesForSite`) wired operator-home → client page →
   site page → metering-point page for portfolio-wide energy with drill-down.
@@ -437,6 +449,15 @@ Ingestion (Phase 2) and the engine (Phase 4) get the most care and tests.
   intentionally still dormant. Known v1 follow-ups: wiring `src/core/time` in when the first
   DST-observing DNSP is onboarded (§5); roadmap items in §6 (automated PDF parsing, more DNSPs,
   self-serve) remain deferred by design.
+- **Open follow-ups from the Phase 4–6 audit** (logged, not yet actioned): (1) **no golden-file
+  test reproduces the real Origin/Energex invoice "to the cent"** despite §5 claiming it — the
+  rates are entered but nothing pins a regression against the source bill; add a fixture from the
+  actual invoice. (2) **Doc drift in §6:** emissions/carbon, the retail-futures benchmark,
+  operational findings and the solar recommendation are all **built and wired into the report**,
+  yet §6 still lists emissions as *not* in v1 — reconcile the scope list with what shipped.
+  (3) Minor: partial-reactive-data kVA understatement (engine treats intervals lacking a Q
+  reading as PF=1 when *some* reactive exists); `demandShave` uses kW-as-kVA when reactive is
+  absent (inconsistent with the engine's assumed-PF path, but caveated in the UI).
 
 ### Design note for Phase 3 ↔ Phase 4 (how the contract was honoured)
 The intent: avoid two subtly-different ToU classifiers (analytics vs cost engine) drifting

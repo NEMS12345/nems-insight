@@ -50,8 +50,10 @@ import {
   ENERGEX_7400,
   type LossFactors,
 } from "@/core/tariff";
+import { modelledComponents, reconcile as reconcileComponents } from "@/core/reconciliation";
 import { sortSavings, totalAnnualSaving, adjustConfidence, preIssueChecks, type SavingsItem } from "@/core/report";
 import { BarChart } from "@/components/BarChart";
+import { ReconciliationTable } from "@/components/ReconciliationTable";
 import { PrintButton } from "@/components/PrintButton";
 import { moneyLabel, energyLabel } from "@/lib/format";
 
@@ -222,17 +224,23 @@ export default async function ClientReport({
   const scope3 = scope3Electricity(annualKwh, ngaScope3Factor(region));
   const solarCo2 = emissionsAvoided(solar.annualGenerationKwh, factor);
 
-  // Reconciliation.
-  const reconciliations = bills
-    .map((b) => {
-      const bt = getTariff(b.tariffCode ?? "") ?? tariff;
-      const inPeriod = readings.filter((r) => {
-        const d = r.intervalStart.slice(0, 10);
-        return d >= b.periodStart && d <= b.periodEnd;
-      });
-      return { bill: b, cost: computeFullCost(inPeriod, bt, retailPlan, losses) };
-    })
-    .map(({ bill, cost }) => ({ bill, cost, recon: reconcile(cost.total, bill.billedTotal) }));
+  // Reconciliation — component-wise (the headline) when the bill was entered as buckets,
+  // else a total-level check.
+  const reconciliations = bills.map((b) => {
+    const bt = getTariff(b.tariffCode ?? "") ?? tariff;
+    const inPeriod = readings.filter((r) => {
+      const d = r.intervalStart.slice(0, 10);
+      return d >= b.periodStart && d <= b.periodEnd;
+    });
+    const cost = computeFullCost(inPeriod, bt, retailPlan, losses);
+    const components =
+      b.billedComponents.length > 0
+        ? reconcileComponents(modelledComponents(cost), b.billedComponents, {
+            estimatedDataPct: consumptionSummary(inPeriod).estimatedFraction,
+          })
+        : null;
+    return { bill: b, cost, recon: reconcile(cost.total, b.billedTotal), components };
+  });
 
   const periodStart = daily[0]?.date ?? "—";
   const periodEnd = daily[daily.length - 1]?.date ?? "—";
@@ -454,18 +462,29 @@ export default async function ClientReport({
 
         {reconciliations.length > 0 && (
           <Section title="Bill reconciliation">
-            <table className="w-full text-sm">
-              <tbody className="divide-y divide-black/5">
-                {reconciliations.map(({ bill, cost, recon }) => (
-                  <tr key={bill.id}>
-                    <td className="py-1.5">{bill.periodStart}–{bill.periodEnd}{bill.retailer ? ` · ${bill.retailer}` : ""}</td>
-                    <td className="py-1.5 text-right tabular-nums">billed {moneyLabel(bill.billedTotal)}</td>
-                    <td className="py-1.5 text-right tabular-nums">modelled {moneyLabel(cost.total)}</td>
-                    <td className="py-1.5 text-right font-medium">{recon.status}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="flex flex-col gap-5">
+              {reconciliations.map(({ bill, cost, recon, components }) => (
+                <div key={bill.id} className="break-inside-avoid">
+                  <div className="mb-2 text-sm font-medium">
+                    {bill.periodStart}–{bill.periodEnd}
+                    {bill.retailer ? ` · ${bill.retailer}` : ""}
+                  </div>
+                  {components ? (
+                    <ReconciliationTable result={components} />
+                  ) : (
+                    <table className="w-full text-sm">
+                      <tbody className="divide-y divide-black/5">
+                        <tr>
+                          <td className="py-1.5 text-right tabular-nums">billed {moneyLabel(bill.billedTotal)}</td>
+                          <td className="py-1.5 text-right tabular-nums">modelled {moneyLabel(cost.total)}</td>
+                          <td className="py-1.5 text-right font-medium">{recon.status}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              ))}
+            </div>
           </Section>
         )}
 

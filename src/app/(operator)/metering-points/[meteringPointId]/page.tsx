@@ -23,9 +23,14 @@ import {
   DEFAULT_RETAIL_PLAN,
   ENERGEX_7200,
 } from "@/core/tariff";
+import {
+  modelledComponents,
+  reconcile as reconcileComponents,
+} from "@/core/reconciliation";
 import { listBillsForMeteringPoint } from "@/data/repositories/bills";
 import { getRetailPlan } from "@/data/repositories/retailPlans";
 import { BarChart } from "@/components/BarChart";
+import { ReconciliationTable } from "@/components/ReconciliationTable";
 import { SubmitButton } from "@/components/SubmitButton";
 import { moneyLabel } from "@/lib/format";
 import { createBillAction, createRetailPlanAction } from "../../actions";
@@ -93,7 +98,8 @@ export default async function MeteringPointPage({
   const modelled = computeFullCost(readings, tariff, retailPlan, losses);
 
   // Per-bill reconciliation: cost the readings within each bill's period on its tariff
-  // + retail plan, then compare to the billed total.
+  // + retail plan. When the bill was entered as component buckets, reconcile component by
+  // component (the headline); otherwise fall back to the total-level check.
   const reconciliations = bills.map((b) => {
     const billTariff = getTariff(b.tariffCode ?? "") ?? tariff;
     const inPeriod = readings.filter((r) => {
@@ -101,7 +107,14 @@ export default async function MeteringPointPage({
       return d >= b.periodStart && d <= b.periodEnd;
     });
     const cost = computeFullCost(inPeriod, billTariff, retailPlan, losses);
-    return { bill: b, cost, recon: reconcile(cost.total, b.billedTotal) };
+    const estimatedFraction = consumptionSummary(inPeriod).estimatedFraction;
+    const components =
+      b.billedComponents.length > 0
+        ? reconcileComponents(modelledComponents(cost), b.billedComponents, {
+            estimatedDataPct: estimatedFraction,
+          })
+        : null;
+    return { bill: b, cost, recon: reconcile(cost.total, b.billedTotal), components };
   });
 
   return (
@@ -287,30 +300,39 @@ export default async function MeteringPointPage({
           <section>
             <h2 className="font-medium">Bills &amp; reconciliation</h2>
             <p className="text-xs text-foreground/50">
-              Enter the billed total (ex-GST) for a period; it&apos;s compared to the cost
-              modelled from interval data on the same tariff.
+              Enter the bill (ex-GST) as component buckets for the period; each is compared,
+              component by component, to the cost modelled from interval data — so you can see
+              exactly where the bill disagrees. Leave a bucket blank if it&apos;s not on the bill.
+              The total is summed automatically.
             </p>
 
             {reconciliations.length > 0 && (
-              <ul className="mt-3 divide-y divide-border rounded border border-border">
-                {reconciliations.map(({ bill, cost, recon }) => (
-                  <li key={bill.id} className="px-4 py-3 text-sm">
+              <ul className="mt-3 flex flex-col gap-4">
+                {reconciliations.map(({ bill, cost, recon, components }) => (
+                  <li key={bill.id} className="rounded border border-border p-4 text-sm">
                     <div className="flex items-center justify-between">
-                      <span>
+                      <span className="font-medium">
                         {bill.periodStart} → {bill.periodEnd}
                         {bill.retailer ? ` · ${bill.retailer}` : ""}
                       </span>
-                      <span
-                        className={`text-xs font-semibold ${RECON_STYLE[recon.status]}`}
-                      >
-                        {RECON_LABEL[recon.status]}
-                      </span>
+                      {!components && (
+                        <span className={`text-xs font-semibold ${RECON_STYLE[recon.status]}`}>
+                          {RECON_LABEL[recon.status]}
+                        </span>
+                      )}
                     </div>
-                    <div className="mt-1 text-xs text-foreground/60">
-                      Billed {moneyLabel(bill.billedTotal)} · Modelled{" "}
-                      {moneyLabel(cost.total)} · Variance {moneyLabel(recon.variance)} (
-                      {(recon.variancePct * 100).toFixed(1)}%)
-                    </div>
+                    {components ? (
+                      <div className="mt-3">
+                        <ReconciliationTable result={components} />
+                      </div>
+                    ) : (
+                      <div className="mt-1 text-xs text-foreground/60">
+                        Billed {moneyLabel(bill.billedTotal)} · Modelled {moneyLabel(cost.total)} ·
+                        Variance {moneyLabel(recon.variance)} (
+                        {(recon.variancePct * 100).toFixed(1)}%). Total-level only — re-enter as
+                        component buckets to see where the bill disagrees.
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -349,17 +371,33 @@ export default async function MeteringPointPage({
                   className="rounded border border-border px-3 py-2 text-sm text-foreground"
                 />
               </label>
-              <label className="col-span-2 flex flex-col gap-1 text-xs text-foreground/60">
-                Billed total (ex-GST, AUD)
-                <input
-                  type="number"
-                  step="0.01"
-                  name="billedTotal"
-                  required
-                  placeholder="e.g. 12500.00"
-                  className="rounded border border-border px-3 py-2 text-sm text-foreground"
-                />
-              </label>
+              <div className="col-span-2 mt-1 text-[11px] uppercase tracking-wide text-foreground/40">
+                Billed components (ex-GST, AUD)
+              </div>
+              {(
+                [
+                  ["energyPeak", "Energy — peak"],
+                  ["energyShoulder", "Energy — shoulder"],
+                  ["energyOffpeak", "Energy — off-peak"],
+                  ["demand", "Demand"],
+                  ["supply", "Supply / fixed"],
+                  ["metering", "Metering"],
+                  ["environmental", "Environmental (pass-through)"],
+                  ["market", "Market / AEMO (pass-through)"],
+                  ["other", "Other"],
+                ] as const
+              ).map(([name, label]) => (
+                <label key={name} className="flex flex-col gap-1 text-xs text-foreground/60">
+                  {label}
+                  <input
+                    type="number"
+                    step="0.01"
+                    name={name}
+                    placeholder="—"
+                    className="rounded border border-border px-3 py-2 text-sm text-foreground"
+                  />
+                </label>
+              ))}
               <SubmitButton
                 className="col-span-2 justify-self-start rounded bg-accent hover:bg-accent-hover px-3 py-2 text-sm text-white"
                 pendingText="Reconciling…"

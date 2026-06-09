@@ -1,4 +1,9 @@
 import { createSupabaseServerClient } from "@/data/supabase/server";
+import {
+  type BillComponent,
+  parseComponentKey,
+  natureOf,
+} from "@/core/reconciliation";
 
 export interface Bill {
   id: string;
@@ -12,6 +17,15 @@ export interface Bill {
   billedTotal: number; // ex-GST
   notes: string | null;
   createdAt: string;
+  /** Billed side decomposed into canonical components (empty for total-only legacy bills). */
+  billedComponents: BillComponent[];
+}
+
+interface BillLineItemRow {
+  label: string;
+  category: string | null;
+  amount: number | string;
+  component: string | null;
 }
 
 interface BillRow {
@@ -26,6 +40,24 @@ interface BillRow {
   billed_total: number | string;
   notes: string | null;
   created_at: string;
+  bill_line_item?: BillLineItemRow[] | null;
+}
+
+/** Reconstruct canonical billed components from stored line items (only those with a component key). */
+function toBilledComponents(rows: BillLineItemRow[] | null | undefined): BillComponent[] {
+  if (!rows) return [];
+  return rows
+    .filter((r) => r.component)
+    .map((r) => {
+      const { kind, subKey } = parseComponentKey(r.component as string);
+      return {
+        kind,
+        subKey,
+        label: r.label,
+        amount: Number(r.amount) || 0,
+        nature: natureOf(kind),
+      };
+    });
 }
 
 function toBill(r: BillRow): Bill {
@@ -41,11 +73,12 @@ function toBill(r: BillRow): Bill {
     billedTotal: Number(r.billed_total) || 0,
     notes: r.notes,
     createdAt: r.created_at,
+    billedComponents: toBilledComponents(r.bill_line_item),
   };
 }
 
 const COLS =
-  "id, client_id, metering_point_id, retailer, tariff_code, tariff_name, period_start, period_end, billed_total, notes, created_at";
+  "id, client_id, metering_point_id, retailer, tariff_code, tariff_name, period_start, period_end, billed_total, notes, created_at, bill_line_item ( label, category, amount, component )";
 
 export async function listBillsForMeteringPoint(
   meteringPointId: string,
@@ -60,6 +93,14 @@ export async function listBillsForMeteringPoint(
   return (data as BillRow[]).map(toBill);
 }
 
+/** One billed component to persist as a line item: its taxonomy key, label and amount (ex-GST). */
+export interface NewBillComponent {
+  component: string; // "kind:subKey" key, e.g. "energy:peak"
+  label: string;
+  category?: string; // "network" | "retail" | null
+  amount: number;
+}
+
 export interface NewBill {
   clientId: string;
   meteringPointId: string;
@@ -70,6 +111,8 @@ export interface NewBill {
   periodEnd: string;
   billedTotal: number;
   notes?: string;
+  /** Component buckets entered by the operator; stored as bill_line_item rows. */
+  components?: NewBillComponent[];
 }
 
 export async function createBill(input: NewBill): Promise<string> {
@@ -90,5 +133,21 @@ export async function createBill(input: NewBill): Promise<string> {
     .select("id")
     .single();
   if (error) throw error;
-  return (data as { id: string }).id;
+  const billId = (data as { id: string }).id;
+
+  // Persist the component buckets as line items, tenant-stamped from the bill's client.
+  if (input.components && input.components.length > 0) {
+    const { error: liError } = await supabase.from("bill_line_item").insert(
+      input.components.map((c) => ({
+        bill_id: billId,
+        client_id: input.clientId,
+        label: c.label,
+        category: c.category ?? null,
+        amount: c.amount,
+        component: c.component,
+      })),
+    );
+    if (liError) throw liError;
+  }
+  return billId;
 }

@@ -21,6 +21,12 @@ import { parseMeterProfile } from "@/ingestion/parsers/meterProfile";
 import { readMeterProfileRows } from "@/ingestion/parsers/xlsxRows";
 import type { ParsedReading, ParseResult } from "@/ingestion/types";
 import { createBill } from "@/data/repositories/bills";
+import {
+  billedComponents,
+  billedBucketsTotal,
+  componentKey,
+  type BilledBuckets,
+} from "@/core/reconciliation";
 import { createMarketPrice } from "@/data/repositories/marketPrices";
 import { createEmissionsFactor } from "@/data/repositories/emissionsFactors";
 import { upsertRetailPlan } from "@/data/repositories/retailPlans";
@@ -220,9 +226,29 @@ export async function createBillAction(formData: FormData) {
   const clientId = str(formData, "clientId");
   const periodStart = str(formData, "periodStart");
   const periodEnd = str(formData, "periodEnd");
-  const billedTotal = Number(str(formData, "billedTotal"));
   if (!meteringPointId || !clientId || !periodStart || !periodEnd) return;
-  if (!Number.isFinite(billedTotal)) return;
+
+  // A blank bucket means "not on this bill" (undefined); 0 is a deliberate zero.
+  const bucket = (k: string): number | undefined => {
+    const v = str(formData, k);
+    if (v === "") return undefined;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : undefined;
+  };
+  const buckets: BilledBuckets = {
+    energyPeak: bucket("energyPeak"),
+    energyShoulder: bucket("energyShoulder"),
+    energyOffpeak: bucket("energyOffpeak"),
+    demand: bucket("demand"),
+    supply: bucket("supply"),
+    environmental: bucket("environmental"),
+    market: bucket("market"),
+    metering: bucket("metering"),
+    other: bucket("other"),
+  };
+  const components = billedComponents(buckets);
+  if (components.length === 0) return; // nothing entered — don't create an empty bill
+  const billedTotal = billedBucketsTotal(buckets);
 
   const tariffCode = str(formData, "tariffCode") || undefined;
   await createBill({
@@ -235,6 +261,11 @@ export async function createBillAction(formData: FormData) {
     periodEnd,
     billedTotal,
     notes: str(formData, "notes") || undefined,
+    components: components.map((c) => ({
+      component: componentKey(c),
+      label: c.label,
+      amount: c.amount,
+    })),
   });
 
   revalidatePath(`/metering-points/${meteringPointId}`);

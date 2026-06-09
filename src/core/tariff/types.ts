@@ -2,6 +2,8 @@
 // of charges that the engine (engine.ts) applies to interval data. Adding another network
 // or retailer means adding another Tariff value, not changing the engine.
 
+import type { ComponentKind } from "@/core/reconciliation/taxonomy";
+
 export type Category = "network" | "retail";
 
 export type TouPeriod = "peak" | "shoulder" | "offpeak";
@@ -106,6 +108,10 @@ export interface CostLine {
   category: Category;
   amount: number;
   detail?: string;
+  /** Reconciliation-taxonomy kind this line maps to, set where the charge is costed. */
+  component?: ComponentKind;
+  /** Sub-bucket within the component — for energy, the ToU period ("peak") or "all". */
+  subKey?: string;
 }
 
 export interface CostResult {

@@ -115,6 +115,7 @@ export function computeCost(
         category: charge.category,
         amount: charge.ratePerDay * dayCount,
         detail: `${dayCount} days @ $${charge.ratePerDay}/day`,
+        component: "supply",
       });
     } else if (charge.kind === "fixed_monthly") {
       lines.push({
@@ -122,6 +123,7 @@ export function computeCost(
         category: charge.category,
         amount: charge.ratePerMonth * monthCount,
         detail: `${monthCount} month${monthCount === 1 ? "" : "s"} @ $${charge.ratePerMonth}/month`,
+        component: "supply",
       });
     } else if (charge.kind === "energy") {
       const kwh = charge.period === "all" ? totalEnergy : energyByPeriod[charge.period];
@@ -138,6 +140,8 @@ export function computeCost(
         category: charge.category,
         amount: charge.rate * kwh * lossMult,
         detail: `${Math.round(kwh).toLocaleString("en-AU")} kWh @ $${charge.rate}/kWh${lossNote}`,
+        component: "energy",
+        subKey: charge.period,
       });
     } else {
       // demand_monthly: sum each calendar month's maximum in-window demand,
@@ -162,6 +166,7 @@ export function computeCost(
           months === 0
             ? "no in-window demand"
             : `${months} month${months === 1 ? "" : "s"}, summed max ${summedMax.toFixed(1)} ${charge.unit} @ $${charge.rate}/${charge.unit}/month`,
+        component: "demand",
       });
     }
   }
