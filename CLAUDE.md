@@ -80,6 +80,21 @@ plainly: **the write-side guarantee is NOT RLS.** It is three things working tog
 Because the service role bypasses RLS, the service-role client is confined to `src/data/**`
 (see §8; an ESLint rule enforces it). Everything else goes through repositories.
 
+### Auth (v1 operator login)
+Operators sign in with **email + password** via Supabase Auth, wired with **`@supabase/ssr`**
+(cookie-based sessions: a browser client for sign-in, a server client that runs every query
+**as the logged-in user** so RLS applies, and middleware that refreshes the session). Why this
+shape: there are only ~18 operators in a managed service, so email/password (operators created
+by the founder in the Supabase dashboard, no public sign-up) is the simplest thing that is
+secure and needs no extra moving parts. We use `@supabase/ssr` rather than the older
+`@supabase/auth-helpers-nextjs`, which Supabase has **deprecated** in favour of `@supabase/ssr`
+— adopting the deprecated package would be a regression. If SSO/SAML is ever needed for a
+larger operator team, that is a Supabase Auth configuration change, not an app rewrite — stop
+and confirm before adding it. The service-role key is **not** used for v1 login or CRUD (those
+run as the user, under RLS); it only arrives with Phase 2 ingestion, at which point the
+`@/data/service-role` module is created in `src/data/**` and the dormant ESLint guard (§8)
+becomes active.
+
 **Canonical migration SQL pattern (the Phase 1 spec — build to this):** every client-owned
 table denormalises `client_id` and the FK to its parent is composite, including `client_id`:
 
