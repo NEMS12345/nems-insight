@@ -449,15 +449,18 @@ Ingestion (Phase 2) and the engine (Phase 4) get the most care and tests.
   intentionally still dormant. Known v1 follow-ups: wiring `src/core/time` in when the first
   DST-observing DNSP is onboarded (§5); roadmap items in §6 (automated PDF parsing, more DNSPs,
   self-serve) remain deferred by design.
-- **Open follow-ups from the Phase 4–6 audit** (logged, not yet actioned): (1) **no golden-file
-  test reproduces the real Origin/Energex invoice "to the cent"** despite §5 claiming it — the
-  rates are entered but nothing pins a regression against the source bill; add a fixture from the
-  actual invoice. (2) **Doc drift in §6:** emissions/carbon, the retail-futures benchmark,
-  operational findings and the solar recommendation are all **built and wired into the report**,
-  yet §6 still lists emissions as *not* in v1 — reconcile the scope list with what shipped.
-  (3) Minor: partial-reactive-data kVA understatement (engine treats intervals lacking a Q
-  reading as PF=1 when *some* reactive exists); `demandShave` uses kW-as-kVA when reactive is
-  absent (inconsistent with the engine's assumed-PF path, but caveated in the UI).
+- **Open follow-ups from the Phase 4–6 audit** (logged): (1) **Golden regression lock added**
+  (`tests/core/invoice-golden.test.ts`) — pins the Energex 7400 + Origin cost engine output
+  line-by-line to the cent against a *literal re-typed copy* of the invoice-derived rates, so a
+  silent rate or engine-math change now fails the suite, and the loss discipline (network volume
+  = none, retail energy = MLF×DLF, environmental/market = DLF) is locked. It uses a fully-derived
+  synthetic period; the remaining step for *strict* source validation is swapping in the real
+  invoice's interval data + printed line totals (needs the PDF). (2) **Doc drift in §6:**
+  emissions/carbon, the retail-futures benchmark, operational findings and the solar
+  recommendation are all built and wired into the report, yet §6 still lists emissions as *not*
+  in v1 — reconcile the scope list with what shipped. (3) Minor: partial-reactive-data kVA
+  understatement (engine treats intervals lacking a Q reading as PF=1 when *some* reactive
+  exists); `demandShave` uses kW-as-kVA when reactive is absent (caveated in the UI).
 
 ### Design note for Phase 3 ↔ Phase 4 (how the contract was honoured)
 The intent: avoid two subtly-different ToU classifiers (analytics vs cost engine) drifting
