@@ -255,15 +255,24 @@ tracks the actual load shape.
    across daylight-saving transitions in DST states (NSW/VIC/ACT/TAS/SA). QLD (and WA/NT)
    do not observe DST, so for Energex/SE-QLD sites local time == NEM time year-round.
 
-### Time-handling note (single source of truth)
-All timezone conversion lives in **`src/core/time`** — nowhere else converts between
-zones. It exposes the NEM-time constant/basis, `nem12IntervalToInstant(date, index,
-length, basis?)` (NEM12 calendar day + interval index → absolute instant; the source
-basis is an explicit parameter defaulting to NEM time), and `instantToLocalParts(instant,
-timezone)` (absolute instant → site-local wall-clock parts for ToU bucketing). The basis
-is configurable for the rare local-time-recorded source. Tested across Australia/Sydney
-spring-forward + fall-back days and Australia/Brisbane (no DST). The legacy fixed-+10
-helpers in `src/core/analytics/time.ts` are being superseded by this module.
+### Time-handling note (v1 basis + the forward path)
+**As built, v1 buckets time-of-use in NEM time / AEST (UTC+10, no DST).** The analytics and
+tariff engines classify ToU and day-type via the fixed-AEST helpers in
+`src/core/analytics/time.ts` (`aestDate`, `aestMinuteOfDay`, `aestDayType`, `aestYearMonth`).
+This is **correct for v1** because v1 is **Energex / SE-QLD only**, and QLD does not observe
+daylight saving — so local clock time == NEM time year-round and ToU buckets are exact. It is a
+**deliberate v1 simplification**, not the end state.
+
+**The forward path is `src/core/time`** — a tested, IANA-timezone-aware module
+(`nem12IntervalToInstant(date, index, length, basis?)` and `instantToLocalParts(instant,
+timezone)`, verified across Australia/Sydney spring-forward + fall-back and Australia/Brisbane).
+It is **built and tested but NOT yet wired in** (the `site.timezone` IANA field exists for it).
+**When the first DST-observing DNSP is onboarded (NSW/VIC/ACT/TAS/SA), ToU bucketing must move
+onto `src/core/time` so it evaluates windows in the site's local clock time** — at which point
+that module becomes the single conversion path and the fixed-AEST helpers retire. Until then,
+adding DST handling would be out-of-scope work for a QLD-only v1 (be ruthless — §8). Note this
+means there is currently no live "single source of truth" for zone conversion; that rule
+activates with the first DST jurisdiction.
 
 ---
 
@@ -328,10 +337,10 @@ helpers in `src/core/analytics/time.ts` are being superseded by this module.
 | 0. Scaffold | Repo, layers, CLAUDE.md, README, env, Supabase wiring | Clean repo to review |
 | 1. Data foundation | Schema + migrations, RLS, auth, operator login, seed | Log in, create client → site → NMI — **✓ DONE** |
 | 2. NEM12 ingestion | Parser (all channels), upload, validation, gap/quality flag, raw storage, audit | Drag in a NEM12 file, see data land — **✓ DONE** |
-| 3. Analytics core | Pure, unit-tested: consumption, demand, power factor, load profile | See charts for a NMI/site |
-| 4. Tariff + cost + reconciliation | General tariff schema + validator (DONE; Energex populated, others structure-only), bill entry, cost-from-intervals engine, component-wise computed-vs-billed | See where the bill disagrees |
-| 5. Portfolio rollup | Client → site → metering-point nav and aggregation | See whole portfolio, drill down |
-| 6. Client report | The clean read-only export | Hand a client a report — **MVP done** |
+| 3. Analytics core | Pure, unit-tested: consumption, demand, power factor, load profile | See charts for a NMI/site — **✓ DONE** |
+| 4. Tariff + cost + reconciliation | General tariff schema + validator (DONE; Energex populated, others structure-only), bill entry, cost-from-intervals engine, component-wise computed-vs-billed | See where the bill disagrees — **✓ DONE** |
+| 5. Portfolio rollup | Client → site → metering-point nav and aggregation | See whole portfolio, drill down — **✓ DONE** |
+| 6. Client report | The clean read-only export | Hand a client a report — **✓ DONE (v1 MVP)** |
 
 Ingestion (Phase 2) and the engine (Phase 4) get the most care and tests.
 
@@ -371,11 +380,12 @@ Ingestion (Phase 2) and the engine (Phase 4) get the most care and tests.
   `src/data` (it bypasses RLS — see §3/§8).
 
 ### Current state (what's actually built)
-- **Foundational corrections done & green:** Vitest wired; `src/core/time` (single timezone
-  source of truth); the general DNSP tariff schema + validator with Energex populated and
-  Ausgrid/SAPN as structure-only fixtures; `src/core/reconciliation` (component-wise); the
-  composite-FK/RLS write-path pattern + trust boundary recorded. 128 tests pass; typecheck,
-  lint and build are clean.
+- **Foundational corrections done & green:** Vitest wired; `src/core/time` (the IANA-aware
+  forward time module — **built & tested but not yet wired**; v1 buckets in fixed AEST, see §5);
+  the general DNSP tariff schema + validator with Energex populated and Ausgrid/SAPN as
+  structure-only fixtures; `src/core/reconciliation` (component-wise); the composite-FK/RLS
+  write-path pattern + trust boundary recorded. 128 tests pass; typecheck, lint and build are
+  clean.
 - **Phase 1 (data foundation) done:** migrations `0001`–`0013` create the full hierarchy
   (organisation → client → site → metering_point → interval_reading, plus import_batch /
   raw_file / bills / tariff-support tables from later phases), with `client_id NOT NULL`,
@@ -396,15 +406,48 @@ Ingestion (Phase 2) and the engine (Phase 4) get the most care and tests.
   Scope notes honoured: NEM12 matches one NMI to one metering point (no meter-serial split —
   that's the meter-profile format's job); the meter-profile source carries no quality codes so
   its rows are `actual`; the readings repository pages and caps at 200k rows per metering point.
+- **Phase 3 (analytics core) done:** pure, unit-tested modules in `src/core/analytics` —
+  consumption (`consumptionSummary`, `dailyConsumption`), demand (`demandByInterval`,
+  `peakDemand`, `averageDemandKw`, `loadFactor`, `topDemandIntervals`), power factor
+  (`periodPowerFactor`, `powerFactorAtPeakDemand` — returns `null`, never fabricated unity, when
+  no reactive channel is present), and `loadProfileByTimeOfDay`. Wired into a charts UI on the
+  operator metering-point page (`BarChart`). Buckets in fixed AEST (§5).
+- **Phase 4 (tariff + cost + reconciliation) done:** the general DNSP tariff schema +
+  `validateTariff` (Energex 7200/7400 populated; Ausgrid/SAPN structure-only) and a pure
+  cost engine (`src/core/tariff`): `computeCost`/`computeFullCost`/`computeRetailCost`,
+  `marginalEnergyRatePerKwh`, monthly-reset in-window demand (kW/kVA, honest kVA fallback via
+  reactive→assumed-PF→kW), explicit loss factors, plus `eligibility`, `compare`, `benchmark`,
+  `demand` (shave saving) and `retail`. **One ToU classifier** (`classifyPeriod` in
+  `periods.ts`) is shared by engine/demand/retail — honouring the Phase 3→4 "one bucketing path"
+  intent. Bill entry (`createBillAction` → `bill`/`bill_line_item`). Reconciliation:
+  component-wise (`src/core/reconciliation`: taxonomy + `reconcile`, dual $/% tolerance,
+  pass-through excluded from the error judgement, estimated-data → low-confidence) plus a
+  total-level check (`src/core/tariff/reconciliation.ts`).
+- **Phase 5 (portfolio rollup) done:** `rollups` repo (`clientEnergies`, `clientEnergy`,
+  `siteEnergiesForClient`, `meteringPointEnergiesForSite`) wired operator-home → client page →
+  site page → metering-point page for portfolio-wide energy with drill-down.
+- **Phase 6 (client report) done — v1 MVP complete:** the read-only client report
+  (`app/(client)/report/[meteringPointId]`) composes the core into one print-optimised
+  deliverable — summary + prioritised savings (`src/core/report.ts`), usage profile + data
+  quality, cost breakdown, bill reconciliation, eligibility-flagged network tariff comparison,
+  and a solar recommendation. Report logic iterated across three test generations
+  (`report`/`reportv2`/`reportv3`).
 - **Not yet built:** the `@/data/service-role` module — it only arrives with a future
   non-interactive ingestion path (scheduled pulls / email-in), so its ESLint guard is
-  intentionally still dormant.
+  intentionally still dormant. Known v1 follow-ups: wiring `src/core/time` in when the first
+  DST-observing DNSP is onboarded (§5); roadmap items in §6 (automated PDF parsing, more DNSPs,
+  self-serve) remain deferred by design.
 
-### Design note for Phase 3 → Phase 4 (record now, honour later)
-Phase 3 analytics outputs — ToU consumption buckets (kWh per peak/shoulder/off-peak in
-**site-local** time) and demand peaks (max-interval kW/kVA within the chargeable window) — are
-the **exact inputs** the Phase 4 cost engine multiplies by tariff rates. When those phases are
-built, the cost engine must **consume the analytics outputs**, not re-derive consumption/demand
-from raw intervals. One bucketing path, used by both, keeps modelled cost consistent with the
-analytics the operator sees (and avoids two subtly-different ToU classifiers drifting apart).
+### Design note for Phase 3 ↔ Phase 4 (how the contract was honoured)
+The intent: avoid two subtly-different ToU classifiers (analytics vs cost engine) drifting
+apart, so modelled cost stays consistent with the analytics the operator sees. **As built,
+there is a single ToU classifier** — `classifyPeriod` (`src/core/tariff/periods.ts`), used by
+the cost engine, demand and retail; analytics doesn't define a competing one (its load profile
+keys on minute-of-day, not ToU period). Both sides share the same primitives (`intervalPowerKw`,
+the AEST time helpers), so peak/shoulder/off-peak and demand are computed one way. Note the cost
+engine re-iterates the readings to sum per-interval energy rather than literally importing an
+analytics ToU-bucket function — acceptable because the *classifier* is shared; if an analytics
+ToU-bucket function is later added, point it and the engine at `classifyPeriod` too. When
+`src/core/time` is wired in for DST states (§5), update `classifyPeriod` (and the analytics
+helpers) to bucket in site-local time in that one place.
 
