@@ -311,8 +311,14 @@ activates with the first DST jurisdiction.
    (`app/(client)/report/[meteringPointId]`): summary + prioritised recommendations, usage
    profile (load factor, profile, data quality), cost breakdown, bill reconciliation,
    **network tariff check** (re-costs the load on each tariff and shows the switch saving,
-   eligibility-flagged), and a **solar recommendation** (sized to minimise export; saving,
-   payback, CO₂). Solar/tariff assumptions are explicit. Save-as-PDF from the browser.
+   eligibility-flagged), a **solar recommendation** (sized to minimise export; saving,
+   payback, CO₂), **operational findings** (overnight base load, out-of-hours energy,
+   avoidable standing-load saving), a **retail-contract benchmark** (the contestable retail
+   rate vs an indicative band built from an operator-entered ASX QLD futures price — NOT a
+   scraped feed, NOT cross-client benchmarking), and an **electricity-emissions** summary
+   (Scope 2 location + market, Scope 3 T&D/upstream, via NGA factors; method-stated estimates,
+   not a carbon-neutral claim). Solar/tariff/benchmark assumptions are explicit. Save-as-PDF
+   from the browser.
 8. **Two front doors, one core** — operator console + read-only client view via RLS roles.
 
 ### NOT in v1 (deferred / roadmap)
@@ -321,7 +327,9 @@ activates with the first DST jurisdiction.
 - Any network except Energex (others become data entries later, not a rewrite).
 - Sub-metering / allocation logic (explicitly out of scope).
 - Other meter types (abstraction kept general, nothing built).
-- Emissions/carbon, cross-client benchmarking, alerting, demand-response.
+- Cross-client benchmarking, alerting, demand-response. (NB: *electricity* Scope 2/3
+  emissions DID ship in the report as method-stated estimates — see item 7; what stays out is
+  full carbon accounting / other scopes / offset purchasing / any "carbon-neutral" claim.)
 - Environmental certificate (LGC/STC) cost forensics (entered as flat bill line items).
 
 ### Deferred SELF-SERVE items (called out explicitly)
@@ -455,10 +463,11 @@ Ingestion (Phase 2) and the engine (Phase 4) get the most care and tests.
   silent rate or engine-math change now fails the suite, and the loss discipline (network volume
   = none, retail energy = MLF×DLF, environmental/market = DLF) is locked. It uses a fully-derived
   synthetic period; the remaining step for *strict* source validation is swapping in the real
-  invoice's interval data + printed line totals (needs the PDF). (2) **Doc drift in §6:**
-  emissions/carbon, the retail-futures benchmark, operational findings and the solar
-  recommendation are all built and wired into the report, yet §6 still lists emissions as *not*
-  in v1 — reconcile the scope list with what shipped. (3) Minor: partial-reactive-data kVA
+  invoice's interval data + printed line totals (needs the PDF). (2) **§6 scope drift —
+  resolved:** §6 item 7 now lists the report's operational findings, retail-contract benchmark
+  and electricity Scope 2/3 emissions, and the NOT-in-v1 list scopes emissions precisely
+  (electricity Scope 2/3 shipped; full carbon accounting / offsets / carbon-neutral claims stay
+  out). (3) Minor: partial-reactive-data kVA
   understatement (engine treats intervals lacking a Q reading as PF=1 when *some* reactive
   exists); `demandShave` uses kW-as-kVA when reactive is absent (caveated in the UI).
 
