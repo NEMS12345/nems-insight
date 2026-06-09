@@ -63,22 +63,32 @@ Even though only operators log in for v1, we build proper tenant isolation **now
 Retrofitting tenancy into a single-tenant DB is the classic expensive rebuild. We avoid it
 by doing it up front while greenfield.
 
-### The write-path trust boundary (closing the RLS hole)
-RLS protects the **read** path. It does **not** protect the write path when the server uses
-the **service-role key**, which **bypasses RLS entirely**. Ingestion runs server-side with the
-service role (it must, to write on the operator's behalf), so RLS alone cannot guarantee that a
-derived row (e.g. an `interval_reading`) is stamped with the *correct* `client_id`. State this
-plainly: **the write-side guarantee is NOT RLS.** It is three things working together:
+### The write-path trust boundary
+v1 ingestion is an **interactive operator action**: a logged-in operator uploads a file and the
+server writes the derived rows **as that operator, under RLS** (the cookie-based `@supabase/ssr`
+server client — see Auth below). So for v1 the write path **is** RLS-protected — every
+client-owned table has a write policy `with check (can_operate_client(client_id))` that rejects a
+write to a client the operator may not operate. That is the first line of defence.
+
+It is **not the only** line, because RLS alone can't guarantee a *derived* row (e.g. an
+`interval_reading`) is stamped with the *correct* `client_id` — only that it belongs to a client
+the operator can touch. Three further things keep writes honest, and they hold **even if** a
+future code path uses the **service-role key** (which **bypasses RLS entirely** — see below):
 
 1. **`client_id NOT NULL` on every client-owned table** — a row with no tenant can't be written.
 2. **Composite foreign keys that chain `client_id` down the hierarchy** — a child row's
    `client_id` must match its parent's, enforced by the DB, so a derived row cannot be
    misattributed to the wrong client even by buggy server code.
-3. **An ingestion assertion** that every derived row carries the operator-selected `client_id`
-   (defence in depth above the FK chain).
+3. **An ingestion assertion** that every derived row carries the right `client_id` — the
+   ingestion pipeline takes each reading's `client_id` from the **matched metering point**, never
+   a guess (defence in depth above the FK chain).
 
-Because the service role bypasses RLS, the service-role client is confined to `src/data/**`
-(see §8; an ESLint rule enforces it). Everything else goes through repositories.
+**The service role is NOT used in v1.** It bypasses RLS, so it's reserved for any *future*
+**non-interactive** ingestion (scheduled meter-data pulls, email-in, webhooks) where there is no
+operator session to run as. When that arrives, the `@/data/service-role` client is created in
+`src/data/**` and **confined there** (an ESLint rule enforces it — §8), and points 1–3 above
+become the whole write-side guarantee in the absence of RLS. Until then there is no such module
+and the guard sits dormant by design.
 
 ### Auth (v1 operator login)
 Operators sign in with **email + password** via Supabase Auth, wired with **`@supabase/ssr`**
@@ -91,9 +101,10 @@ secure and needs no extra moving parts. We use `@supabase/ssr` rather than the o
 — adopting the deprecated package would be a regression. If SSO/SAML is ever needed for a
 larger operator team, that is a Supabase Auth configuration change, not an app rewrite — stop
 and confirm before adding it. The service-role key is **not** used for v1 login or CRUD (those
-run as the user, under RLS); it only arrives with Phase 2 ingestion, at which point the
-`@/data/service-role` module is created in `src/data/**` and the dormant ESLint guard (§8)
-becomes active.
+run as the user, under RLS) and **not** by v1 ingestion either (that also runs as the operator
+under RLS — see the write-path trust boundary above); it would only arrive with a future
+**non-interactive** ingestion path, at which point the `@/data/service-role` module is created in
+`src/data/**` and the dormant ESLint guard (§8) becomes active.
 
 **Canonical migration SQL pattern (the Phase 1 spec — build to this):** every client-owned
 table denormalises `client_id` and the FK to its parent is composite, including `client_id`:
@@ -316,7 +327,7 @@ helpers in `src/core/analytics/time.ts` are being superseded by this module.
 |---|---|---|
 | 0. Scaffold | Repo, layers, CLAUDE.md, README, env, Supabase wiring | Clean repo to review |
 | 1. Data foundation | Schema + migrations, RLS, auth, operator login, seed | Log in, create client → site → NMI — **✓ DONE** |
-| 2. NEM12 ingestion | Parser (all channels), upload, validation, gap/quality flag, raw storage, audit | Drag in a NEM12 file, see data land |
+| 2. NEM12 ingestion | Parser (all channels), upload, validation, gap/quality flag, raw storage, audit | Drag in a NEM12 file, see data land — **✓ DONE** |
 | 3. Analytics core | Pure, unit-tested: consumption, demand, power factor, load profile | See charts for a NMI/site |
 | 4. Tariff + cost + reconciliation | General tariff schema + validator (DONE; Energex populated, others structure-only), bill entry, cost-from-intervals engine, component-wise computed-vs-billed | See where the bill disagrees |
 | 5. Portfolio rollup | Client → site → metering-point nav and aggregation | See whole portfolio, drill down |
@@ -372,8 +383,22 @@ Ingestion (Phase 2) and the engine (Phase 4) get the most care and tests.
   Email/password operator auth via `@supabase/ssr` (see §3 Auth); repositories for client /
   site / metering_point in `src/data`; seed data; and an operator console that creates a
   client → site → NMI end to end. Build verified here; full click-through live-tested earlier.
-- **Not yet built:** the `@/data/service-role` module (arrives with Phase 2 ingestion writes),
-  so its ESLint guard is intentionally still dormant.
+- **Phase 2 (NEM12 ingestion) done:** pure parsers in `src/ingestion/parsers` — NEM12 (all
+  channels E/B/Q, quality codes incl. variable-day 400 ranges, 5-/30-min intervals, DST
+  spring-forward/fall-back handling in both market and local bases) and the tabular xlsx
+  meter-profile export (each meter serial its own metering point); validators for gap detection
+  and quality summary; the `import_batch` / `raw_file` / `interval_reading` schema + RLS
+  (`0002_ingestion.sql`); repositories in `src/data` that store the original file, record an
+  import-batch audit row, match readings to metering points and upsert them; and an operator
+  upload form + import history on the site page. **Ingestion writes as the logged-in operator
+  under RLS** (the user-context server client), with `client_id` stamped from the matched
+  metering point — so the service-role module is not used (see the write-path trust boundary).
+  Scope notes honoured: NEM12 matches one NMI to one metering point (no meter-serial split —
+  that's the meter-profile format's job); the meter-profile source carries no quality codes so
+  its rows are `actual`; the readings repository pages and caps at 200k rows per metering point.
+- **Not yet built:** the `@/data/service-role` module — it only arrives with a future
+  non-interactive ingestion path (scheduled pulls / email-in), so its ESLint guard is
+  intentionally still dormant.
 
 ### Design note for Phase 3 → Phase 4 (record now, honour later)
 Phase 3 analytics outputs — ToU consumption buckets (kWh per peak/shoulder/off-peak in
