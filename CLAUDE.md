@@ -315,7 +315,7 @@ helpers in `src/core/analytics/time.ts` are being superseded by this module.
 | Phase | Build | "Done" |
 |---|---|---|
 | 0. Scaffold | Repo, layers, CLAUDE.md, README, env, Supabase wiring | Clean repo to review |
-| 1. Data foundation | Schema + migrations, RLS, auth, operator login, seed | Log in, create client → site → NMI |
+| 1. Data foundation | Schema + migrations, RLS, auth, operator login, seed | Log in, create client → site → NMI — **✓ DONE** |
 | 2. NEM12 ingestion | Parser (all channels), upload, validation, gap/quality flag, raw storage, audit | Drag in a NEM12 file, see data land |
 | 3. Analytics core | Pure, unit-tested: consumption, demand, power factor, load profile | See charts for a NMI/site |
 | 4. Tariff + cost + reconciliation | General tariff schema + validator (DONE; Energex populated, others structure-only), bill entry, cost-from-intervals engine, component-wise computed-vs-billed | See where the bill disagrees |
@@ -358,4 +358,28 @@ Ingestion (Phase 2) and the engine (Phase 4) get the most care and tests.
   `eslint.config.mjs`): (1) `src/core/**` stays pure — no framework/DB/other-layer imports;
   (2) the service-role Supabase client (`@/data/service-role`) may only be imported inside
   `src/data` (it bypasses RLS — see §3/§8).
+
+### Current state (what's actually built)
+- **Foundational corrections done & green:** Vitest wired; `src/core/time` (single timezone
+  source of truth); the general DNSP tariff schema + validator with Energex populated and
+  Ausgrid/SAPN as structure-only fixtures; `src/core/reconciliation` (component-wise); the
+  composite-FK/RLS write-path pattern + trust boundary recorded. 128 tests pass; typecheck,
+  lint and build are clean.
+- **Phase 1 (data foundation) done:** migrations `0001`–`0013` create the full hierarchy
+  (organisation → client → site → metering_point → interval_reading, plus import_batch /
+  raw_file / bills / tariff-support tables from later phases), with `client_id NOT NULL`,
+  the composite-FK tenant chain, and RLS for both the operator and read-only client roles.
+  Email/password operator auth via `@supabase/ssr` (see §3 Auth); repositories for client /
+  site / metering_point in `src/data`; seed data; and an operator console that creates a
+  client → site → NMI end to end. Build verified here; full click-through live-tested earlier.
+- **Not yet built:** the `@/data/service-role` module (arrives with Phase 2 ingestion writes),
+  so its ESLint guard is intentionally still dormant.
+
+### Design note for Phase 3 → Phase 4 (record now, honour later)
+Phase 3 analytics outputs — ToU consumption buckets (kWh per peak/shoulder/off-peak in
+**site-local** time) and demand peaks (max-interval kW/kVA within the chargeable window) — are
+the **exact inputs** the Phase 4 cost engine multiplies by tariff rates. When those phases are
+built, the cost engine must **consume the analytics outputs**, not re-derive consumption/demand
+from raw intervals. One bucketing path, used by both, keeps modelled cost consistent with the
+analytics the operator sees (and avoids two subtly-different ToU classifiers drifting apart).
 
