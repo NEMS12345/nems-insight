@@ -253,6 +253,7 @@ export async function createBillAction(formData: FormData) {
   const billedTotal = billedBucketsTotal(buckets);
 
   const tariffCode = str(formData, "tariffCode") || undefined;
+  const connectionUnits = Number(str(formData, "connectionUnits"));
   await createBill({
     clientId,
     meteringPointId,
@@ -263,6 +264,8 @@ export async function createBillAction(formData: FormData) {
     periodEnd,
     billedTotal,
     notes: str(formData, "notes") || undefined,
+    connectionUnits:
+      Number.isFinite(connectionUnits) && connectionUnits > 0 ? connectionUnits : undefined,
     components: components.map((c) => ({
       component: componentKey(c),
       label: c.label,

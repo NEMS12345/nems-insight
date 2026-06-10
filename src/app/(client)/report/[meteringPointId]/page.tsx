@@ -233,7 +233,9 @@ export default async function ClientReport({
       const d = r.intervalStart.slice(0, 10);
       return d >= b.periodStart && d <= b.periodEnd;
     });
-    const cost = computeFullCost(inPeriod, bt, retailPlan, losses);
+    // The connection-unit count varies per bill: this bill's count wins over the NMI default.
+    const billLosses = { ...losses, connectionUnits: b.connectionUnits ?? losses.connectionUnits };
+    const cost = computeFullCost(inPeriod, bt, retailPlan, billLosses);
     const components =
       b.billedComponents.length > 0
         ? reconcileComponents(modelledComponents(cost), b.billedComponents, {

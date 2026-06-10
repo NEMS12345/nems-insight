@@ -118,11 +118,23 @@ export interface StandingCharge {
   ratePerDay: RateValue; // $/day
 }
 
-/** A monthly fixed charge (e.g. a connection-unit charge). */
+/** A monthly fixed charge. */
 export interface MonthlyFixedCharge {
   kind: "monthly_fixed";
   label: string;
   ratePerMonth: RateValue; // $/calendar month
+}
+
+/**
+ * A per-connection-unit charge (e.g. the Energex 11kV DUOS connection unit charge). Billed as
+ * ratePerUnit × a connection-unit COUNT that is per-NMI/per-bill data — a capacity figure off
+ * the bill, NOT part of the shared tariff. Mirrors the concrete engine's `connection_unit`
+ * charge kind (src/core/tariff/types.ts).
+ */
+export interface ConnectionUnitCharge {
+  kind: "connection_unit";
+  label: string;
+  ratePerUnit: RateValue; // $/unit
 }
 
 /**
@@ -173,6 +185,7 @@ export interface DemandCharge {
 export type Charge =
   | StandingCharge
   | MonthlyFixedCharge
+  | ConnectionUnitCharge
   | EnergyCharge
   | DemandCharge;
 

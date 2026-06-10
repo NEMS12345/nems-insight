@@ -105,6 +105,8 @@ function validateCharge(
       return rateIsPlaceholder(charge.ratePerDay);
     case "monthly_fixed":
       return rateIsPlaceholder(charge.ratePerMonth);
+    case "connection_unit":
+      return rateIsPlaceholder(charge.ratePerUnit);
     case "energy": {
       let saw = false;
       if (charge.rates.length === 0) errors.push({ path: `${path}.rates`, message: "energy charge has no rates" });

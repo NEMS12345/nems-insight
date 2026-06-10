@@ -17,6 +17,8 @@ export interface Bill {
   billedTotal: number; // ex-GST
   notes: string | null;
   createdAt: string;
+  /** This bill's connection-unit count (varies per bill); null → use the NMI default. */
+  connectionUnits: number | null;
   /** Billed side decomposed into canonical components (empty for total-only legacy bills). */
   billedComponents: BillComponent[];
 }
@@ -40,6 +42,7 @@ interface BillRow {
   billed_total: number | string;
   notes: string | null;
   created_at: string;
+  connection_units: number | string | null;
   bill_line_item?: BillLineItemRow[] | null;
 }
 
@@ -73,12 +76,13 @@ function toBill(r: BillRow): Bill {
     billedTotal: Number(r.billed_total) || 0,
     notes: r.notes,
     createdAt: r.created_at,
+    connectionUnits: r.connection_units === null ? null : Number(r.connection_units),
     billedComponents: toBilledComponents(r.bill_line_item),
   };
 }
 
 const COLS =
-  "id, client_id, metering_point_id, retailer, tariff_code, tariff_name, period_start, period_end, billed_total, notes, created_at, bill_line_item ( label, category, amount, component )";
+  "id, client_id, metering_point_id, retailer, tariff_code, tariff_name, period_start, period_end, billed_total, notes, created_at, connection_units, bill_line_item ( label, category, amount, component )";
 
 export async function listBillsForMeteringPoint(
   meteringPointId: string,
@@ -111,6 +115,8 @@ export interface NewBill {
   periodEnd: string;
   billedTotal: number;
   notes?: string;
+  /** This bill's connection-unit count (off the bill); omit to use the NMI default. */
+  connectionUnits?: number;
   /** Component buckets entered by the operator; stored as bill_line_item rows. */
   components?: NewBillComponent[];
 }
@@ -129,6 +135,7 @@ export async function createBill(input: NewBill): Promise<string> {
       period_end: input.periodEnd,
       billed_total: input.billedTotal,
       notes: input.notes || null,
+      connection_units: input.connectionUnits ?? null,
     })
     .select("id")
     .single();

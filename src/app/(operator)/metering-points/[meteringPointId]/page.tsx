@@ -107,7 +107,9 @@ export default async function MeteringPointPage({
       const d = aestDate(r.intervalStart);
       return d >= b.periodStart && d <= b.periodEnd;
     });
-    const cost = computeFullCost(inPeriod, billTariff, retailPlan, losses);
+    // The connection-unit count varies per bill: this bill's count wins over the NMI default.
+    const billLosses = { ...losses, connectionUnits: b.connectionUnits ?? losses.connectionUnits };
+    const cost = computeFullCost(inPeriod, billTariff, retailPlan, billLosses);
     const estimatedFraction = consumptionSummary(inPeriod).estimatedFraction;
     const components =
       b.billedComponents.length > 0
@@ -369,6 +371,17 @@ export default async function MeteringPointPage({
                   type="date"
                   name="periodEnd"
                   required
+                  className="rounded border border-border px-3 py-2 text-sm text-foreground"
+                />
+              </label>
+              <label className="col-span-2 flex flex-col gap-1 text-xs text-foreground/60">
+                Connection units on this bill (11kV/7400 — the count on the connection unit charge line; blank = NMI default{mp.connectionUnits != null ? ` ${mp.connectionUnits}` : ""})
+                <input
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  name="connectionUnits"
+                  placeholder="—"
                   className="rounded border border-border px-3 py-2 text-sm text-foreground"
                 />
               </label>

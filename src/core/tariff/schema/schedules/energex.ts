@@ -102,7 +102,8 @@ export const ENERGEX_7400_SCHEMA: NetworkTariffSchema = {
   charges: [
     { kind: "standing", label: "Network access (DUOS)", ratePerDay: { amount: 22.306 } },
     { kind: "standing", label: "Jurisdictional scheme (fixed)", ratePerDay: { amount: 0.573 } },
-    { kind: "monthly_fixed", label: "DUOS connection unit charge", ratePerMonth: { amount: 1719.07 } },
+    // Billed as ratePerUnit × a per-NMI/per-bill connection-unit count (varies per bill).
+    { kind: "connection_unit", label: "DUOS connection unit charge", ratePerUnit: { amount: 245.582 } },
     {
       kind: "energy",
       label: "Network volume (DUOS+TUOS+JS)",

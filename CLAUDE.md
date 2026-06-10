@@ -470,11 +470,14 @@ Ingestion (Phase 2) and the engine (Phase 4) get the most care and tests.
   net-of-export kWh (~1c). **Connection unit charge — FIXED:** previously modelled as a flat
   `fixed_monthly` $1719.07 that matched this invoice only by coincidence (245.582×7); the founder
   confirmed it is **rate × a count that varies per bill**, so it is now a `connection_unit`
-  charge ($245.582/unit) multiplied by a per-NMI `connection_units` count (migration `0015`,
-  captured at NMI creation, threaded into the cost params; absent count → modelled $0 and the
-  client report is **blocked** by a pre-issue check). Minor leftover: the general DNSP *schema*
-  (`schema/schedules/energex.ts`) still represents it as `monthly_fixed` — cosmetic only, as that
-  schema isn't used for costing (the concrete `Tariff`/engine is). (2) **§6 scope drift —
+  charge ($245.582/unit) multiplied by a `connection_units` count (migration `0015` per-NMI
+  default captured at NMI creation, migration `0016` per-BILL override captured at bill entry —
+  the count varies between bills, and reconciliation costs each bill's period with that bill's
+  own count, falling back to the NMI default; absent count → modelled $0 and the client report
+  is **blocked** by a pre-issue check). The general DNSP *schema* also now has a
+  `connection_unit` charge kind (rate-only; the count stays per-NMI/per-bill data) and the
+  Energex 7400 schedule uses it ($245.582/unit) — the `monthly_fixed` leftover is gone.
+  (2) **§6 scope drift —
   resolved:** §6 item 7 now lists the report's operational findings, retail-contract benchmark
   and electricity Scope 2/3 emissions, and the NOT-in-v1 list scopes emissions precisely
   (electricity Scope 2/3 shipped; full carbon accounting / offsets / carbon-neutral claims stay
