@@ -232,7 +232,8 @@ export default async function ClientReport({
   // Reconciliation — component-wise (the headline) when the bill was entered as buckets,
   // else a total-level check.
   const reconciliations = bills.map((b) => {
-    const bt = getTariff(b.tariffCode ?? "") ?? tariff;
+    // Cost each bill on the tariff version effective during its period (rates change 1 July).
+    const bt = getTariff(b.tariffCode ?? "", b.periodStart) ?? tariff;
     const inPeriod = readings.filter((r) => {
       const d = r.intervalStart.slice(0, 10);
       return d >= b.periodStart && d <= b.periodEnd;

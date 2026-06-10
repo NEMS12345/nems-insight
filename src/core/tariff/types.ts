@@ -115,6 +115,12 @@ export interface Tariff {
   eligibility?: TariffEligibility;
   /** True if some charges are estimates (e.g. retail) rather than published network rates. */
   hasEstimatedCharges: boolean;
+  /**
+   * Date this rate set took effect ("YYYY-MM-DD"). Network rates change on 1 July, so a bill is
+   * costed on the version effective during its period (see `getTariff(code, asOf)`). Omit only
+   * for a tariff with a single, undated rate set.
+   */
+  effectiveFrom?: string;
   periods: PeriodDefinition;
   charges: Charge[];
 }

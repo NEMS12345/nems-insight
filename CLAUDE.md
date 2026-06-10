@@ -470,6 +470,18 @@ Ingestion (Phase 2) and the engine (Phase 4) get the most care and tests.
   partial period against the full bill and falsely shouts "investigate". Wired in both the
   operator page and the client report; `ReconciliationTable` shows a coverage note. Day-level
   granularity for v1 (any reading = day covered); interval-weighting is a future refinement.
+- **Network tariffs are effective-dated (rate-change hardening).** Energex network rates change
+  each 1 July, so the concrete-engine registry is now versioned: `TARIFF_VERSIONS[code]` holds a
+  tariff's rate-set versions over time and `getTariff(code, asOf?)` returns the version effective
+  on `asOf` (the newest whose `effectiveFrom` ≤ `asOf`; without `asOf`, the latest; before any
+  version, falls back to the oldest held). Reconciliation passes each bill's `periodStart` as
+  `asOf`, so older bills stay correct after a rate update and new bills get the new rates — no
+  fork. Adding the next 1-July rates is a DATA edit (prepend a dated `Tariff` to the array), never
+  an engine change. `ENERGEX_7200` carries `effectiveFrom: 2026-07-01`, `ENERGEX_7400`
+  `2025-07-01` (its rates derive from the Mar-2026 invoice = 2025-26 FY); each currently has a
+  single version, so behaviour is unchanged until a second is added. **Retail** rates are NOT yet
+  dated (a `RetailPlan` is one current per-NMI record); when retail rates need history, date them
+  the same way — logged follow-up, no fabrication. No real prior-year rates were invented.
 - **Not yet built:** the `@/data/service-role` module — it only arrives with a future
   non-interactive ingestion path (scheduled pulls / email-in), so its ESLint guard is
   intentionally still dormant. Known v1 follow-ups: wiring `src/core/time` in when the first

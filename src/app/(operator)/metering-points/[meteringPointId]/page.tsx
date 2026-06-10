@@ -108,7 +108,8 @@ export default async function MeteringPointPage({
   // + retail plan. When the bill was entered as component buckets, reconcile component by
   // component (the headline); otherwise fall back to the total-level check.
   const reconciliations = bills.map((b) => {
-    const billTariff = getTariff(b.tariffCode ?? "") ?? tariff;
+    // Cost each bill on the tariff version effective during its period (rates change 1 July).
+    const billTariff = getTariff(b.tariffCode ?? "", b.periodStart) ?? tariff;
     const inPeriod = readings.filter((r) => {
       const d = aestDate(r.intervalStart);
       return d >= b.periodStart && d <= b.periodEnd;

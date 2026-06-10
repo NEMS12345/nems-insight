@@ -25,6 +25,7 @@ export const ENERGEX_7200: Tariff = {
   voltageClass: "LV",
   eligibility: { minAnnualMwh: 100 },
   hasEstimatedCharges: false,
+  effectiveFrom: "2026-07-01", // Energex NUOS 2026-27
   periods: ENERGEX_7200_PERIODS,
   charges: [
     { kind: "fixed_daily", category: "network", label: "Network fixed charge", ratePerDay: 9.257 },
@@ -50,6 +51,9 @@ export const ENERGEX_7400: Tariff = {
   currency: "AUD",
   voltageClass: "HV",
   hasEstimatedCharges: false,
+  // Rates derived from a real Origin invoice for the Mar-2026 bill period — i.e. the 2025-26
+  // Energex financial-year rate set (network rates change each 1 July).
+  effectiveFrom: "2025-07-01",
   periods: ENERGEX_7400_PERIODS,
   charges: [
     { kind: "fixed_daily", category: "network", label: "Network access (DUOS)", ratePerDay: 22.306 },
@@ -60,12 +64,43 @@ export const ENERGEX_7400: Tariff = {
   ],
 };
 
-/** Registry of network tariffs (data-driven — add rows, not code). */
-export const TARIFFS: Record<string, Tariff> = {
-  "7200": ENERGEX_7200,
-  "7400": ENERGEX_7400,
+/**
+ * Effective-dated registry of network tariffs. Energex network rates change on 1 July, so each
+ * code maps to its rate-set VERSIONS over time. A bill is costed on the version that applied
+ * during its period (see `getTariff(code, asOf)`), so older bills stay correct after a rate
+ * update and new bills get the new rates — no fork. When the next 1 July rates land, prepend a
+ * new dated `Tariff` value here: a DATA edit, never an engine change. Keep versions newest-first.
+ */
+export const TARIFF_VERSIONS: Record<string, Tariff[]> = {
+  "7200": [ENERGEX_7200],
+  "7400": [ENERGEX_7400],
 };
 
-export function getTariff(code: string): Tariff | undefined {
-  return TARIFFS[code];
+/** Current (latest) version of each tariff — convenience for live analytics and pickers. */
+export const TARIFFS: Record<string, Tariff> = Object.fromEntries(
+  Object.entries(TARIFF_VERSIONS).map(([code, versions]) => [code, latestVersion(versions)]),
+);
+
+function latestVersion(versions: Tariff[]): Tariff {
+  return [...versions].sort((a, b) => (b.effectiveFrom ?? "").localeCompare(a.effectiveFrom ?? ""))[0];
+}
+
+/**
+ * The tariff for `code`, as it applied on `asOf` ("YYYY-MM-DD"). Picks the newest version whose
+ * `effectiveFrom` is on or before `asOf`. Without `asOf`, returns the current (latest) version.
+ * If `asOf` predates every version we hold, falls back to the OLDEST version (we cost on the
+ * earliest rates we have rather than nothing — documented behaviour until an older version is
+ * added). Returns undefined for an unknown code.
+ */
+export function getTariff(code: string, asOf?: string): Tariff | undefined {
+  const versions = TARIFF_VERSIONS[code];
+  if (!versions || versions.length === 0) return undefined;
+  const newestFirst = [...versions].sort(
+    (a, b) => (b.effectiveFrom ?? "").localeCompare(a.effectiveFrom ?? ""),
+  );
+  if (!asOf) return newestFirst[0];
+  return (
+    newestFirst.find((t) => !t.effectiveFrom || t.effectiveFrom <= asOf) ??
+    newestFirst[newestFirst.length - 1]
+  );
 }
