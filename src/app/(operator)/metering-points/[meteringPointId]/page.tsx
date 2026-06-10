@@ -25,6 +25,7 @@ import {
 } from "@/core/tariff";
 import {
   modelledComponents,
+  periodCoverage,
   reconcile as reconcileComponents,
 } from "@/core/reconciliation";
 import { listBillsForMeteringPoint } from "@/data/repositories/bills";
@@ -33,7 +34,12 @@ import { BarChart } from "@/components/BarChart";
 import { ReconciliationTable } from "@/components/ReconciliationTable";
 import { SubmitButton } from "@/components/SubmitButton";
 import { moneyLabel } from "@/lib/format";
-import { createBillAction, createRetailPlanAction } from "../../actions";
+import {
+  createBillAction,
+  createRetailPlanAction,
+  deleteBillAction,
+  updateMeteringPointSettingsAction,
+} from "../../actions";
 
 function kwh(n: number): string {
   return `${n.toLocaleString("en-AU", { maximumFractionDigits: 0 })} kWh`;
@@ -111,10 +117,16 @@ export default async function MeteringPointPage({
     const billLosses = { ...losses, connectionUnits: b.connectionUnits ?? losses.connectionUnits };
     const cost = computeFullCost(inPeriod, billTariff, retailPlan, billLosses);
     const estimatedFraction = consumptionSummary(inPeriod).estimatedFraction;
+    const coverage = periodCoverage(
+      inPeriod.map((r) => aestDate(r.intervalStart)),
+      b.periodStart,
+      b.periodEnd,
+    );
     const components =
       b.billedComponents.length > 0
         ? reconcileComponents(modelledComponents(cost), b.billedComponents, {
             estimatedDataPct: estimatedFraction,
+            coverageFraction: coverage,
           })
         : null;
     return { bill: b, cost, recon: reconcile(cost.total, b.billedTotal), components };
@@ -153,6 +165,83 @@ export default async function MeteringPointPage({
           </Link>
         )}
       </section>
+
+      <details className="rounded border border-border p-4 text-sm">
+        <summary className="cursor-pointer font-medium">NMI settings</summary>
+        <p className="mt-1 text-xs text-foreground/60">
+          Tariff, loss factors, connection voltage, assumed power factor and connection-unit
+          count. Correct these any time — they feed the cost model and the report. Loss factors and
+          (for 7400) a connection-unit count are required before a client report can be issued.
+        </p>
+        <form
+          action={updateMeteringPointSettingsAction}
+          className="mt-3 flex flex-col gap-3"
+        >
+          <input type="hidden" name="meteringPointId" value={mp.id} />
+          <select
+            name="tariffCode"
+            defaultValue={mp.tariffCode ?? "7200"}
+            className="rounded border border-border px-3 py-2 text-sm"
+          >
+            <option value="7200">Network tariff: Energex 7200 (SAC Large TOU)</option>
+            <option value="7400">Network tariff: Energex 7400 (11kV TOU Demand)</option>
+          </select>
+          <div className="flex gap-3">
+            <input
+              name="mlf"
+              type="number"
+              step="0.00001"
+              defaultValue={mp.mlf ?? ""}
+              placeholder="MLF (e.g. 1.01060)"
+              className="w-1/2 rounded border border-border px-3 py-2 text-sm"
+            />
+            <input
+              name="dlf"
+              type="number"
+              step="0.00001"
+              defaultValue={mp.dlf ?? ""}
+              placeholder="DLF (e.g. 1.04388)"
+              className="w-1/2 rounded border border-border px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="flex gap-3">
+            <select
+              name="connectionVoltage"
+              defaultValue={mp.connectionVoltage ?? ""}
+              className="w-1/2 rounded border border-border px-3 py-2 text-sm"
+            >
+              <option value="">Connection voltage… (for tariff eligibility)</option>
+              <option value="LV">LV (low voltage)</option>
+              <option value="HV">HV (high voltage / 11kV)</option>
+            </select>
+            <input
+              name="assumedPf"
+              type="number"
+              step="0.01"
+              min="0"
+              max="1"
+              defaultValue={mp.assumedPf ?? ""}
+              placeholder="Assumed PF (only if no reactive data)"
+              className="w-1/2 rounded border border-border px-3 py-2 text-sm"
+            />
+          </div>
+          <input
+            name="connectionUnits"
+            type="number"
+            step="0.001"
+            min="0"
+            defaultValue={mp.connectionUnits ?? ""}
+            placeholder="Connection units (11kV/7400 only — default count; a bill can override its own)"
+            className="rounded border border-border px-3 py-2 text-sm"
+          />
+          <SubmitButton
+            className="self-start rounded bg-accent hover:bg-accent-hover px-3 py-2 text-sm text-white"
+            pendingText="Saving…"
+          >
+            Save settings
+          </SubmitButton>
+        </form>
+      </details>
 
       {readings.length === 0 ? (
         <p className="text-sm text-foreground/60">
@@ -313,16 +402,28 @@ export default async function MeteringPointPage({
               <ul className="mt-3 flex flex-col gap-4">
                 {reconciliations.map(({ bill, cost, recon, components }) => (
                   <li key={bill.id} className="rounded border border-border p-4 text-sm">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-3">
                       <span className="font-medium">
                         {bill.periodStart} → {bill.periodEnd}
                         {bill.retailer ? ` · ${bill.retailer}` : ""}
                       </span>
-                      {!components && (
-                        <span className={`text-xs font-semibold ${RECON_STYLE[recon.status]}`}>
-                          {RECON_LABEL[recon.status]}
-                        </span>
-                      )}
+                      <div className="flex items-center gap-3">
+                        {!components && (
+                          <span className={`text-xs font-semibold ${RECON_STYLE[recon.status]}`}>
+                            {RECON_LABEL[recon.status]}
+                          </span>
+                        )}
+                        <form action={deleteBillAction}>
+                          <input type="hidden" name="billId" value={bill.id} />
+                          <input type="hidden" name="meteringPointId" value={mp.id} />
+                          <SubmitButton
+                            className="rounded border border-border px-2 py-1 text-xs text-foreground/60 hover:border-bad/50 hover:text-bad"
+                            pendingText="Deleting…"
+                          >
+                            Delete
+                          </SubmitButton>
+                        </form>
+                      </div>
                     </div>
                     {components ? (
                       <div className="mt-3">

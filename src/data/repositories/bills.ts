@@ -158,3 +158,17 @@ export async function createBill(input: NewBill): Promise<string> {
   }
   return billId;
 }
+
+/**
+ * Delete a bill (and its line items, via the FK cascade / explicit child delete). Used to
+ * correct a mis-entered bill — re-enter rather than in-place edit for v1. Runs as the operator
+ * under RLS, so only a bill on a client the operator may operate can be removed.
+ */
+export async function deleteBill(id: string): Promise<void> {
+  const supabase = await createSupabaseServerClient();
+  // Remove children first in case the schema doesn't cascade.
+  const { error: liError } = await supabase.from("bill_line_item").delete().eq("bill_id", id);
+  if (liError) throw liError;
+  const { error } = await supabase.from("bill").delete().eq("id", id);
+  if (error) throw error;
+}

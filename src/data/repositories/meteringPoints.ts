@@ -54,6 +54,40 @@ export interface NewMeteringPoint {
   connectionUnits?: number;
 }
 
+/**
+ * Editable per-NMI settings. These are captured at NMI creation but must be correctable
+ * afterwards (loss factors arrive late, a tariff is reassigned, a connection-unit count is
+ * learned from the first bill). `undefined`/blank clears the column. Runs as the operator
+ * under RLS; the composite-FK chain keeps `client_id` honest.
+ */
+export interface MeteringPointSettings {
+  tariffCode?: string;
+  mlf?: number;
+  dlf?: number;
+  connectionVoltage?: "LV" | "HV";
+  assumedPf?: number;
+  connectionUnits?: number;
+}
+
+export async function updateMeteringPointSettings(
+  id: string,
+  settings: MeteringPointSettings,
+): Promise<void> {
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("metering_point")
+    .update({
+      tariff_code: settings.tariffCode || null,
+      mlf: settings.mlf ?? null,
+      dlf: settings.dlf ?? null,
+      connection_voltage: settings.connectionVoltage || null,
+      assumed_pf: settings.assumedPf ?? null,
+      connection_units: settings.connectionUnits ?? null,
+    })
+    .eq("id", id);
+  if (error) throw error;
+}
+
 export async function createMeteringPoint(
   input: NewMeteringPoint,
 ): Promise<MeteringPoint> {

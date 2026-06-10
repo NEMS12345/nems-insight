@@ -452,6 +452,24 @@ Ingestion (Phase 2) and the engine (Phase 4) get the most care and tests.
   quality, cost breakdown, bill reconciliation, eligibility-flagged network tariff comparison,
   and a solar recommendation. Report logic iterated across three test generations
   (`report`/`reportv2`/`reportv3`).
+- **Operator data is correctable (post-MVP hardening).** Two gaps that made the tool brittle
+  in real operation are closed: (a) **NMI settings are now editable** — an "NMI settings"
+  panel on the operator metering-point page edits tariff code, MLF/DLF, connection voltage,
+  assumed PF and the default connection-unit count after creation
+  (`updateMeteringPointSettingsAction` → `updateMeteringPointSettings`), so the report's
+  "loss factors/connection-units required" pre-issue block is now a fixable prompt, not a
+  dead-end; (b) **bills are deletable** — a mis-entered bill can be removed and re-entered
+  (`deleteBillAction` → `deleteBill`, children removed then the bill; runs as the operator
+  under RLS). Both run as the logged-in operator under RLS.
+- **Reconciliation now withholds verdicts on incomplete periods (trust hardening).** The
+  component-wise `reconcile` takes a `coverageFraction` (0–1 = share of the bill period's days
+  that actually have interval data, from the pure `periodCoverage`/`daysInPeriodInclusive` in
+  `src/core/reconciliation/coverage.ts`) and a `minCoverageFraction` (default 0.90). Below the
+  floor the judgement is **`insufficient-data`** (precedence: insufficient-data → low-confidence
+  → component verdict), so a partly-ingested month (e.g. 20 of 31 days) no longer prices a
+  partial period against the full bill and falsely shouts "investigate". Wired in both the
+  operator page and the client report; `ReconciliationTable` shows a coverage note. Day-level
+  granularity for v1 (any reading = day covered); interval-weighting is a future refinement.
 - **Not yet built:** the `@/data/service-role` module — it only arrives with a future
   non-interactive ingestion path (scheduled pulls / email-in), so its ESLint guard is
   intentionally still dormant. Known v1 follow-ups: wiring `src/core/time` in when the first

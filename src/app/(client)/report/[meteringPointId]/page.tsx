@@ -50,7 +50,11 @@ import {
   ENERGEX_7400,
   type LossFactors,
 } from "@/core/tariff";
-import { modelledComponents, reconcile as reconcileComponents } from "@/core/reconciliation";
+import {
+  modelledComponents,
+  periodCoverage,
+  reconcile as reconcileComponents,
+} from "@/core/reconciliation";
 import { sortSavings, totalAnnualSaving, adjustConfidence, preIssueChecks, type SavingsItem } from "@/core/report";
 import { BarChart } from "@/components/BarChart";
 import { ReconciliationTable } from "@/components/ReconciliationTable";
@@ -236,10 +240,16 @@ export default async function ClientReport({
     // The connection-unit count varies per bill: this bill's count wins over the NMI default.
     const billLosses = { ...losses, connectionUnits: b.connectionUnits ?? losses.connectionUnits };
     const cost = computeFullCost(inPeriod, bt, retailPlan, billLosses);
+    const coverage = periodCoverage(
+      inPeriod.map((r) => r.intervalStart.slice(0, 10)),
+      b.periodStart,
+      b.periodEnd,
+    );
     const components =
       b.billedComponents.length > 0
         ? reconcileComponents(modelledComponents(cost), b.billedComponents, {
             estimatedDataPct: consumptionSummary(inPeriod).estimatedFraction,
+            coverageFraction: coverage,
           })
         : null;
     return { bill: b, cost, recon: reconcile(cost.total, b.billedTotal), components };

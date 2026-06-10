@@ -34,6 +34,10 @@ const JUDGEMENT: Record<Judgement, { label: string; cls: string }> = {
     label: "Low confidence — data heavily estimated",
     cls: "border-warn/40 bg-warn/5 text-warn",
   },
+  "insufficient-data": {
+    label: "Insufficient data — period not fully ingested",
+    cls: "border-warn/40 bg-warn/5 text-warn",
+  },
 };
 
 function pctLabel(p: number | null): string {
@@ -56,6 +60,14 @@ export function ReconciliationTable({ result }: { result: ReconciliationResult }
           {result.netVariancePct != null ? ` (${pctLabel(result.netVariancePct)})` : ""}
         </span>
       </div>
+      {result.judgement === "insufficient-data" ? (
+        <p className="text-xs text-foreground/60">
+          Only {(result.coverageFraction * 100).toFixed(0)}% of this bill&apos;s days have interval
+          data, so the modelled cost prices a partial period — the comparison below is shown for
+          reference but is not a billing-error verdict. Ingest the missing days to reconcile this
+          bill.
+        </p>
+      ) : null}
 
       <table className="w-full text-sm">
         <thead className="text-left text-[11px] uppercase text-foreground/40">

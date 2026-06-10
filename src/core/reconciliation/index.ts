@@ -8,3 +8,4 @@
 export * from "@/core/reconciliation/taxonomy";
 export * from "@/core/reconciliation/reconcile";
 export * from "@/core/reconciliation/map";
+export * from "@/core/reconciliation/coverage";

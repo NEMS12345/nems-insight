@@ -27,6 +27,10 @@ export interface ReconcileOptions {
   estimatedDataPct?: number;
   /** At/above this estimated fraction the result is flagged low-confidence. Default 0.20 (20%). */
   lowConfidenceEstimatedPct?: number;
+  /** Fraction (0–1) of the bill period's days that have interval data. Default 1 (full). */
+  coverageFraction?: number;
+  /** Below this coverage the verdict is withheld as "insufficient-data". Default 0.90 (90%). */
+  minCoverageFraction?: number;
 }
 
 const DEFAULTS: Required<ReconcileOptions> = {
@@ -34,6 +38,8 @@ const DEFAULTS: Required<ReconcileOptions> = {
   relativeTolerance: 0.02,
   estimatedDataPct: 0,
   lowConfidenceEstimatedPct: 0.2,
+  coverageFraction: 1,
+  minCoverageFraction: 0.9,
 };
 
 export type ComponentStatus =
@@ -57,7 +63,12 @@ export interface ComponentVariance {
   status: ComponentStatus;
 }
 
-export type Judgement = "match" | "review" | "investigate" | "low-confidence";
+export type Judgement =
+  | "match"
+  | "review"
+  | "investigate"
+  | "low-confidence"
+  | "insufficient-data";
 
 export interface ReconciliationResult {
   components: ComponentVariance[];
@@ -70,6 +81,8 @@ export interface ReconciliationResult {
   passThroughBilledAud: number;
   // Confidence:
   estimatedDataPct: number;
+  /** Fraction (0–1) of the period's days with interval data behind the modelled side. */
+  coverageFraction: number;
   confidence: "ok" | "low";
   judgement: Judgement;
 }
@@ -164,16 +177,25 @@ export function reconcile(
       .reduce((s, c) => s + (c.billedAud ?? 0), 0),
   );
 
+  // The modelled side prices only the days we have. If too much of the period is missing,
+  // the comparison isn't valid — withhold the verdict rather than manufacture an "error".
+  const insufficientData = opts.coverageFraction < opts.minCoverageFraction;
+
   const confidence: "ok" | "low" =
-    opts.estimatedDataPct >= opts.lowConfidenceEstimatedPct ? "low" : "ok";
+    insufficientData || opts.estimatedDataPct >= opts.lowConfidenceEstimatedPct ? "low" : "ok";
 
   const worst = modelledComponents.reduce(
     (acc, c) => Math.max(acc, SEVERITY[c.status]),
     0,
   );
   const baseJudgement: Judgement = worst >= 2 ? "investigate" : worst === 1 ? "review" : "match";
-  // Heavily-estimated months are low-confidence, not billing errors.
-  const judgement: Judgement = confidence === "low" ? "low-confidence" : baseJudgement;
+  // Precedence: missing days (can't compare at all) → heavily-estimated (don't trust the
+  // numbers) → the component-level verdict.
+  const judgement: Judgement = insufficientData
+    ? "insufficient-data"
+    : confidence === "low"
+      ? "low-confidence"
+      : baseJudgement;
 
   return {
     components,
@@ -183,6 +205,7 @@ export function reconcile(
     netVariancePct,
     passThroughBilledAud,
     estimatedDataPct: opts.estimatedDataPct,
+    coverageFraction: opts.coverageFraction,
     confidence,
     judgement,
   };

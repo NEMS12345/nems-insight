@@ -6,7 +6,10 @@ import { redirect } from "next/navigation";
 import { getOperatorContext } from "@/data/repositories/session";
 import { createClient } from "@/data/repositories/clients";
 import { createSite, getSite } from "@/data/repositories/sites";
-import { createMeteringPoint } from "@/data/repositories/meteringPoints";
+import {
+  createMeteringPoint,
+  updateMeteringPointSettings,
+} from "@/data/repositories/meteringPoints";
 import {
   meteringPointRefsForSite,
   storeRawFile,
@@ -20,7 +23,7 @@ import { parseNem12 } from "@/ingestion/parsers/nem12";
 import { parseMeterProfile } from "@/ingestion/parsers/meterProfile";
 import { readMeterProfileRows } from "@/ingestion/parsers/xlsxRows";
 import type { ParsedReading, ParseResult } from "@/ingestion/types";
-import { createBill } from "@/data/repositories/bills";
+import { createBill, deleteBill } from "@/data/repositories/bills";
 import {
   billedComponents,
   billedBucketsTotal,
@@ -107,6 +110,30 @@ export async function createMeteringPointAction(formData: FormData) {
   });
 
   revalidatePath(`/sites/${siteId}`);
+}
+
+export async function updateMeteringPointSettingsAction(formData: FormData) {
+  const ctx = await getOperatorContext();
+  if (!ctx) redirect("/login");
+
+  const meteringPointId = str(formData, "meteringPointId");
+  if (!meteringPointId) return;
+
+  const mlf = Number(str(formData, "mlf"));
+  const dlf = Number(str(formData, "dlf"));
+  const assumedPf = Number(str(formData, "assumedPf"));
+  const connectionUnits = Number(str(formData, "connectionUnits"));
+  const voltage = str(formData, "connectionVoltage");
+  await updateMeteringPointSettings(meteringPointId, {
+    tariffCode: str(formData, "tariffCode") || undefined,
+    mlf: Number.isFinite(mlf) && mlf > 0 ? mlf : undefined,
+    dlf: Number.isFinite(dlf) && dlf > 0 ? dlf : undefined,
+    connectionVoltage: voltage === "LV" || voltage === "HV" ? voltage : undefined,
+    assumedPf: Number.isFinite(assumedPf) && assumedPf > 0 && assumedPf <= 1 ? assumedPf : undefined,
+    connectionUnits: Number.isFinite(connectionUnits) && connectionUnits > 0 ? connectionUnits : undefined,
+  });
+
+  revalidatePath(`/metering-points/${meteringPointId}`);
 }
 
 export async function importDataAction(formData: FormData) {
@@ -274,6 +301,19 @@ export async function createBillAction(formData: FormData) {
   });
 
   revalidatePath(`/metering-points/${meteringPointId}`);
+}
+
+export async function deleteBillAction(formData: FormData) {
+  const ctx = await getOperatorContext();
+  if (!ctx) redirect("/login");
+
+  const billId = str(formData, "billId");
+  const meteringPointId = str(formData, "meteringPointId");
+  if (!billId) return;
+
+  await deleteBill(billId);
+
+  if (meteringPointId) revalidatePath(`/metering-points/${meteringPointId}`);
 }
 
 export async function createMarketPriceAction(formData: FormData) {
