@@ -467,11 +467,14 @@ Ingestion (Phase 2) and the engine (Phase 4) get the most care and tests.
   bill to **~4c on $42.5k**. Two documented few-cents residuals remain (real modelling choices,
   not errors): environmental uses one combined certificate-adjusted rate where the invoice rounds
   SREC/LREC separately (~3c); regulated/AEMO is applied to total consumption vs the invoice's
-  net-of-export kWh (~1c). **New finding to action:** the DUOS *connection unit charge* is
-  modelled as a flat `fixed_monthly` $1719.07, but the invoice bills it as **245.582 $/day × 7
-  days** — equal *only by coincidence* this period (245.582×7≈1719.07); for any other day-count
-  the model would be wrong. Needs domain clarification (what is the "7"? does it vary?) before
-  generalising. (2) **§6 scope drift —
+  net-of-export kWh (~1c). **Connection unit charge — FIXED:** previously modelled as a flat
+  `fixed_monthly` $1719.07 that matched this invoice only by coincidence (245.582×7); the founder
+  confirmed it is **rate × a count that varies per bill**, so it is now a `connection_unit`
+  charge ($245.582/unit) multiplied by a per-NMI `connection_units` count (migration `0015`,
+  captured at NMI creation, threaded into the cost params; absent count → modelled $0 and the
+  client report is **blocked** by a pre-issue check). Minor leftover: the general DNSP *schema*
+  (`schema/schedules/energex.ts`) still represents it as `monthly_fixed` — cosmetic only, as that
+  schema isn't used for costing (the concrete `Tariff`/engine is). (2) **§6 scope drift —
   resolved:** §6 item 7 now lists the report's operational findings, retail-contract benchmark
   and electricity Scope 2/3 emissions, and the NOT-in-v1 list scopes emissions precisely
   (electricity Scope 2/3 shipped; full carbon accounting / offsets / carbon-neutral claims stay

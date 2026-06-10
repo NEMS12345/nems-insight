@@ -46,7 +46,18 @@ export type Charge =
       kind: "fixed_monthly";
       category: Category;
       label: string;
-      ratePerMonth: number; // $/calendar month (e.g. connection-unit charges)
+      ratePerMonth: number; // $/calendar month
+    }
+  | {
+      kind: "connection_unit";
+      category: Category;
+      label: string;
+      /**
+       * $ per connection unit. The COUNT is per-NMI/per-bill data (it varies between bills),
+       * supplied via `connectionUnits` on the cost params — NOT baked into the tariff. Charged
+       * as ratePerUnit × count. (Energex 11kV: the DUOS connection unit charge.)
+       */
+      ratePerUnit: number;
     }
   | {
       kind: "energy";
@@ -79,6 +90,11 @@ export interface LossFactors {
    * (understated) — the report must flag this rather than present it as fact.
    */
   assumedPf?: number;
+  /**
+   * Count for any `connection_unit` charge (per-NMI/per-bill capacity figure off the bill).
+   * Absent → the charge is modelled as $0 and the report must flag it (it understates cost).
+   */
+  connectionUnits?: number;
 }
 
 export type VoltageClass = "LV" | "HV";

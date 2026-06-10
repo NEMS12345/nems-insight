@@ -27,7 +27,7 @@ import { computeFullCost, ENERGEX_7400, DEFAULT_RETAIL_PLAN } from "@/core/tarif
 const R = {
   duosDaily: 22.306, // Network access (DUOS), $/day
   jsDaily: 0.573, // Jurisdictional scheme (fixed), $/day
-  connectionMonthly: 1719.07, // DUOS connection unit charge, $/month
+  connectionUnitRate: 245.582, // DUOS connection unit charge, $/unit
   networkVolume: 0.01974, // Network volume (DUOS+TUOS+JS), $/kWh, NO loss factors
   demandKva: 11.011, // Network peak demand (DUOS+TUOS), $/kVA/month
   retailPeak: 0.072713, // $/kWh
@@ -78,9 +78,14 @@ const WEEKDAYS = 23;
 const PEAK_KWH = WEEKDAYS * 28 * E1_PER_INTERVAL; // 32,200 kWh
 const OFFPEAK_KWH = TOTAL_KWH - PEAK_KWH; // 42,200 kWh
 const DEMAND_KVA = Math.sqrt(100 * 100 + 75 * 75); // 125 kVA, constant in any window
+const CONNECTION_UNITS = 7; // connection-unit count for the connection_unit charge
 
 describe("golden invoice — Energex 7400 + Origin retail, July 2024 constant load", () => {
-  const cost = computeFullCost(buildJuly2024(), ENERGEX_7400, DEFAULT_RETAIL_PLAN, { mlf: MLF, dlf: DLF });
+  const cost = computeFullCost(buildJuly2024(), ENERGEX_7400, DEFAULT_RETAIL_PLAN, {
+    mlf: MLF,
+    dlf: DLF,
+    connectionUnits: CONNECTION_UNITS,
+  });
   const amt = (label: string): number => {
     const line = cost.lines.find((l) => l.label === label);
     if (!line) throw new Error(`missing cost line: ${label}`);
@@ -102,8 +107,8 @@ describe("golden invoice — Energex 7400 + Origin retail, July 2024 constant lo
   it("jurisdictional scheme daily charge", () => {
     expect(amt("Jurisdictional scheme (fixed)")).toBeCloseTo(R.jsDaily * DAYS_IN_MONTH, 2); // 17.763
   });
-  it("DUOS connection unit (monthly) charge", () => {
-    expect(amt("DUOS connection unit charge")).toBeCloseTo(R.connectionMonthly * 1, 2); // 1719.07
+  it("DUOS connection unit charge — rate × count", () => {
+    expect(amt("DUOS connection unit charge")).toBeCloseTo(R.connectionUnitRate * CONNECTION_UNITS, 2); // 1719.074
   });
   it("network volume — flat, NO loss factors", () => {
     expect(amt("Network volume (DUOS+TUOS+JS)")).toBeCloseTo(R.networkVolume * TOTAL_KWH, 2); // 1468.656
@@ -136,8 +141,8 @@ describe("golden invoice — Energex 7400 + Origin retail, July 2024 constant lo
   it("network, retail and grand totals reconcile to the cent", () => {
     const expectedNetwork =
       R.duosDaily * DAYS_IN_MONTH +
+      R.connectionUnitRate * CONNECTION_UNITS +
       R.jsDaily * DAYS_IN_MONTH +
-      R.connectionMonthly +
       R.networkVolume * TOTAL_KWH +
       R.demandKva * DEMAND_KVA;
     const expectedRetail =
@@ -204,6 +209,8 @@ const INV = {
   peakKwh: 194059.1,
   offpeakKwh: 66702.93,
   demandKva: 916.16,
+  connectionUnits: 7, // "7 Days @ $245.582/Day" → 7 connection units
+
   // Printed ex-GST $:
   networkAccessDuos: 691.49, // DUOS access 22.306 $/day × 31
   jurisdictionalScheme: 17.76, // JS fixed 0.573 $/day × 31
@@ -229,7 +236,11 @@ function within(actual: number, expected: number, tol: number, msg?: string): vo
 
 describe("STRICT — reproduces real Origin invoice QB04077571 (Energex 7400, Mar 2026)", () => {
   const proxy = constantLoadOverPeriod(INV.periodStart, INV.periodEnd, INV.totalKwh);
-  const cost = computeFullCost(proxy, ENERGEX_7400, DEFAULT_RETAIL_PLAN, { mlf: INV.mlf, dlf: INV.dlf });
+  const cost = computeFullCost(proxy, ENERGEX_7400, DEFAULT_RETAIL_PLAN, {
+    mlf: INV.mlf,
+    dlf: INV.dlf,
+    connectionUnits: INV.connectionUnits,
+  });
   const amt = (label: string): number => {
     const line = cost.lines.find((l) => l.label === label);
     if (!line) throw new Error(`missing cost line: ${label}`);

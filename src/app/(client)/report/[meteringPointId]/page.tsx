@@ -111,6 +111,7 @@ export default async function ClientReport({
     mlf: mp.mlf ?? undefined,
     dlf: mp.dlf ?? undefined,
     assumedPf: mp.assumedPf ?? undefined,
+    connectionUnits: mp.connectionUnits ?? undefined,
   };
   const region = site?.state ?? "QLD";
   const marketPrice = await getLatestMarketPrice(region);
@@ -255,6 +256,8 @@ export default async function ClientReport({
     hasReactive: reactiveAvailable,
     kvaBilled,
     peakKw: peak.kw,
+    connectionUnitChargeUnset:
+      tariff.charges.some((c) => c.kind === "connection_unit") && mp.connectionUnits == null,
   });
   const blocks = issueChecks.filter((c) => c.level === "block");
   const flags = issueChecks.filter((c) => c.level === "flag");

@@ -37,6 +37,8 @@ export interface PreIssueContext {
   hasReactive: boolean;
   kvaBilled: boolean;
   peakKw: number;
+  /** Tariff has a connection-unit charge but the NMI's unit count isn't set (→ modelled $0). */
+  connectionUnitChargeUnset: boolean;
 }
 
 /**
@@ -55,6 +57,9 @@ export function preIssueChecks(ctx: PreIssueContext): IssueCheck[] {
   }
   if (ctx.kvaBilled && !ctx.hasReactive && ctx.assumedPf == null) {
     block("kVA-demand tariff but no reactive data and no assumed PF — demand cost can't be determined.");
+  }
+  if (ctx.connectionUnitChargeUnset) {
+    block("Tariff has a connection unit charge but the NMI's connection-unit count isn't set — that charge is modelled as $0 and understates cost.");
   }
   if (ctx.assumedPf != null && (ctx.assumedPf <= 0 || ctx.assumedPf > 1)) {
     block(`Assumed power factor (${ctx.assumedPf}) is outside (0, 1].`);

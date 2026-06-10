@@ -91,6 +91,7 @@ export async function createMeteringPointAction(formData: FormData) {
   const mlf = Number(str(formData, "mlf"));
   const dlf = Number(str(formData, "dlf"));
   const assumedPf = Number(str(formData, "assumedPf"));
+  const connectionUnits = Number(str(formData, "connectionUnits"));
   const voltage = str(formData, "connectionVoltage");
   await createMeteringPoint({
     siteId,
@@ -102,6 +103,7 @@ export async function createMeteringPointAction(formData: FormData) {
     dlf: Number.isFinite(dlf) && dlf > 0 ? dlf : undefined,
     connectionVoltage: voltage === "LV" || voltage === "HV" ? voltage : undefined,
     assumedPf: Number.isFinite(assumedPf) && assumedPf > 0 && assumedPf <= 1 ? assumedPf : undefined,
+    connectionUnits: Number.isFinite(connectionUnits) && connectionUnits > 0 ? connectionUnits : undefined,
   });
 
   revalidatePath(`/sites/${siteId}`);

@@ -181,6 +181,31 @@ describe("loss factors", () => {
   });
 });
 
+describe("connection_unit charge", () => {
+  const tariff: Tariff = {
+    code: "CU",
+    name: "connection unit test",
+    network: "Energex",
+    currency: "AUD",
+    voltageClass: "HV",
+    hasEstimatedCharges: false,
+    periods: { peak: { dayTypes: [], ranges: [] }, offpeak: { dayTypes: [], ranges: [] } },
+    charges: [{ kind: "connection_unit", category: "network", label: "Connection unit", ratePerUnit: 245.582 }],
+  };
+
+  it("charges rate × the supplied connection-unit count", () => {
+    const c = computeCost([e1(MON, "10:00", 5)], tariff, { connectionUnits: 7 });
+    expect(c.lines.find((l) => l.label === "Connection unit")!.amount).toBeCloseTo(245.582 * 7, 2);
+  });
+
+  it("models $0 (and says so) when no count is set, rather than guessing", () => {
+    const c = computeCost([e1(MON, "10:00", 5)], tariff);
+    const line = c.lines.find((l) => l.label === "Connection unit")!;
+    expect(line.amount).toBe(0);
+    expect(line.detail).toMatch(/not set/i);
+  });
+});
+
 describe("reconcile", () => {
   it("flags match / review / investigate by variance band", () => {
     expect(reconcile(100, 101).status).toBe("match"); // 1%

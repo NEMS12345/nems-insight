@@ -12,6 +12,7 @@ export interface MeteringPointDetail {
   dlf: number | null;
   connectionVoltage: "LV" | "HV" | null;
   assumedPf: number | null;
+  connectionUnits: number | null;
 }
 
 export async function getMeteringPointDetail(
@@ -20,7 +21,7 @@ export async function getMeteringPointDetail(
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
     .from("metering_point")
-    .select("id, site_id, client_id, nmi, tariff_code, mlf, dlf, connection_voltage, assumed_pf")
+    .select("id, site_id, client_id, nmi, tariff_code, mlf, dlf, connection_voltage, assumed_pf, connection_units")
     .eq("id", id)
     .maybeSingle();
   if (error) throw error;
@@ -35,6 +36,7 @@ export async function getMeteringPointDetail(
     dlf: number | string | null;
     connection_voltage: "LV" | "HV" | null;
     assumed_pf: number | string | null;
+    connection_units: number | string | null;
   };
   return {
     id: row.id,
@@ -46,6 +48,7 @@ export async function getMeteringPointDetail(
     dlf: row.dlf === null ? null : Number(row.dlf),
     connectionVoltage: row.connection_voltage,
     assumedPf: row.assumed_pf === null ? null : Number(row.assumed_pf),
+    connectionUnits: row.connection_units === null ? null : Number(row.connection_units),
   };
 }
 

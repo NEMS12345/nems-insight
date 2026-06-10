@@ -94,6 +94,7 @@ export default async function MeteringPointPage({
     mlf: mp.mlf ?? undefined,
     dlf: mp.dlf ?? undefined,
     assumedPf: mp.assumedPf ?? undefined,
+    connectionUnits: mp.connectionUnits ?? undefined,
   };
   const modelled = computeFullCost(readings, tariff, retailPlan, losses);
 

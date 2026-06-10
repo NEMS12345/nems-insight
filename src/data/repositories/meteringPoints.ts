@@ -51,6 +51,7 @@ export interface NewMeteringPoint {
   dlf?: number;
   connectionVoltage?: "LV" | "HV";
   assumedPf?: number;
+  connectionUnits?: number;
 }
 
 export async function createMeteringPoint(
@@ -69,6 +70,7 @@ export async function createMeteringPoint(
       dlf: input.dlf ?? null,
       connection_voltage: input.connectionVoltage || null,
       assumed_pf: input.assumedPf ?? null,
+      connection_units: input.connectionUnits ?? null,
       meter_type: "nmi_parent",
     })
     .select(COLS)

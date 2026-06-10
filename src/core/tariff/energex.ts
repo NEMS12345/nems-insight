@@ -54,7 +54,7 @@ export const ENERGEX_7400: Tariff = {
   charges: [
     { kind: "fixed_daily", category: "network", label: "Network access (DUOS)", ratePerDay: 22.306 },
     { kind: "fixed_daily", category: "network", label: "Jurisdictional scheme (fixed)", ratePerDay: 0.573 },
-    { kind: "fixed_monthly", category: "network", label: "DUOS connection unit charge", ratePerMonth: 1719.07 },
+    { kind: "connection_unit", category: "network", label: "DUOS connection unit charge", ratePerUnit: 245.582 },
     { kind: "energy", category: "network", label: "Network volume (DUOS+TUOS+JS)", period: "all", rate: 0.01974 },
     { kind: "demand_monthly", category: "network", label: "Network peak demand (DUOS+TUOS)", period: "peak", unit: "kVA", rate: 11.011 },
   ],

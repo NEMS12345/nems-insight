@@ -12,6 +12,7 @@ const OK = {
   hasReactive: true,
   kvaBilled: true,
   peakKw: 200,
+  connectionUnitChargeUnset: false,
 };
 
 describe("preIssueChecks (input/plausibility gate)", () => {
@@ -29,6 +30,10 @@ describe("preIssueChecks (input/plausibility gate)", () => {
   it("blocks an out-of-range assumed PF and zero demand", () => {
     expect(preIssueChecks({ ...OK, hasReactive: false, assumedPf: 1.4 }).some((c) => c.level === "block")).toBe(true);
     expect(preIssueChecks({ ...OK, peakKw: 0 }).some((c) => c.level === "block")).toBe(true);
+  });
+  it("blocks when a connection-unit charge has no unit count set", () => {
+    const checks = preIssueChecks({ ...OK, connectionUnitChargeUnset: true });
+    expect(checks.some((c) => c.level === "block" && /connection.unit/i.test(c.message))).toBe(true);
   });
   it("flags an implausibly low retail supply/metering charge", () => {
     const checks = preIssueChecks({ ...OK, retailDailyChargeTotal: 0.03 });

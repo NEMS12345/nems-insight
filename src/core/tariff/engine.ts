@@ -125,6 +125,19 @@ export function computeCost(
         detail: `${monthCount} month${monthCount === 1 ? "" : "s"} @ $${charge.ratePerMonth}/month`,
         component: "supply",
       });
+    } else if (charge.kind === "connection_unit") {
+      // Per-unit charge: ratePerUnit × the externally-supplied count (per-NMI/per-bill data).
+      const units = losses.connectionUnits ?? 0;
+      lines.push({
+        label: charge.label,
+        category: charge.category,
+        amount: charge.ratePerUnit * units,
+        detail:
+          units > 0
+            ? `${units} units @ $${charge.ratePerUnit}/unit`
+            : "connection-unit count not set — modelled as $0",
+        component: "supply",
+      });
     } else if (charge.kind === "energy") {
       const kwh = charge.period === "all" ? totalEnergy : energyByPeriod[charge.period];
       const lossMult = (charge.losses ?? []).reduce(
