@@ -20,6 +20,7 @@ import {
   computeFullCost,
   reconcile,
   getTariff,
+  pickRetailPlan,
   DEFAULT_RETAIL_PLAN,
   ENERGEX_7200,
 } from "@/core/tariff";
@@ -29,7 +30,7 @@ import {
   reconcile as reconcileComponents,
 } from "@/core/reconciliation";
 import { listBillsForMeteringPoint } from "@/data/repositories/bills";
-import { getRetailPlan } from "@/data/repositories/retailPlans";
+import { listRetailPlans } from "@/data/repositories/retailPlans";
 import { BarChart } from "@/components/BarChart";
 import { ReconciliationTable } from "@/components/ReconciliationTable";
 import { SubmitButton } from "@/components/SubmitButton";
@@ -78,14 +79,15 @@ export default async function MeteringPointPage({
   const mp = await getMeteringPointDetail(meteringPointId);
   if (!mp) notFound();
 
-  const [site, client, readings, bills, retailPlanRow] = await Promise.all([
+  const [site, client, readings, bills, retailPlans] = await Promise.all([
     getSite(mp.siteId),
     getClient(mp.clientId),
     getReadingsForMeteringPoint(meteringPointId),
     listBillsForMeteringPoint(meteringPointId),
-    getRetailPlan(meteringPointId),
+    listRetailPlans(meteringPointId),
   ]);
-  const retailPlan = retailPlanRow ?? DEFAULT_RETAIL_PLAN;
+  // Latest version for the live model; per-bill reconciliation picks the version effective then.
+  const retailPlan = pickRetailPlan(retailPlans) ?? DEFAULT_RETAIL_PLAN;
 
   const summary = consumptionSummary(readings);
   const peak = peakDemand(readings);
@@ -116,7 +118,9 @@ export default async function MeteringPointPage({
     });
     // The connection-unit count varies per bill: this bill's count wins over the NMI default.
     const billLosses = { ...losses, connectionUnits: b.connectionUnits ?? losses.connectionUnits };
-    const cost = computeFullCost(inPeriod, billTariff, retailPlan, billLosses);
+    // Cost on the retail plan version effective during this bill's period (rates change over time).
+    const billRetailPlan = pickRetailPlan(retailPlans, b.periodStart) ?? DEFAULT_RETAIL_PLAN;
+    const cost = computeFullCost(inPeriod, billTariff, billRetailPlan, billLosses);
     const estimatedFraction = consumptionSummary(inPeriod).estimatedFraction;
     const coverage = periodCoverage(
       inPeriod.map((r) => aestDate(r.intervalStart)),
@@ -355,8 +359,17 @@ export default async function MeteringPointPage({
             <h2 className="font-medium">Retail plan (this NMI)</h2>
             <p className="mt-1 text-xs text-foreground/60">
               Enter this NMI&apos;s retail contract rates (ex-GST). Currently using{" "}
-              <strong>{retailPlan.label}</strong>.
+              <strong>{retailPlan.label}</strong>
+              {retailPlan.effectiveFrom && ` (effective ${retailPlan.effectiveFrom})`}. When rates
+              change, save a new version with a later <em>effective from</em> date — older bills keep
+              their old rates, newer bills get the new ones.
             </p>
+            {retailPlans.length > 1 && (
+              <p className="mt-1 text-xs text-foreground/50">
+                Versions on file:{" "}
+                {retailPlans.map((p) => p.effectiveFrom ?? "baseline").join(", ")}.
+              </p>
+            )}
             <form action={createRetailPlanAction} className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
               <input type="hidden" name="meteringPointId" value={mp.id} />
               <input type="hidden" name="clientId" value={mp.clientId} />
@@ -381,6 +394,15 @@ export default async function MeteringPointPage({
                   />
                 </label>
               ))}
+              <label className="flex flex-col gap-1 text-xs text-foreground/60">
+                Effective from (optional)
+                <input
+                  name="effectiveFrom"
+                  type="date"
+                  defaultValue={retailPlan.effectiveFrom ?? ""}
+                  className="rounded border border-border px-3 py-2 text-sm text-foreground"
+                />
+              </label>
               <SubmitButton
                 className="col-span-2 justify-self-start rounded bg-accent hover:bg-accent-hover px-3 py-2 text-sm text-white md:col-span-3"
                 pendingText="Saving…"

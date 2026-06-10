@@ -27,8 +27,36 @@ export interface RetailPlan {
   marketPerKwh: number;
   supplyPerDay: number;
   meteringPerDay: number;
+  /**
+   * Date this rate-set took effect ("YYYY-MM-DD"). Retail rates change over a contract's life, so
+   * — like network tariffs (see `getTariff`) — a plan is held as dated VERSIONS per NMI and a bill
+   * is costed on the version effective during its period. Omit for the single/baseline version.
+   */
+  effectiveFrom?: string;
   /** Loss factors applied to energy charges (environmental/market use DLF only). */
   estimated: boolean;
+}
+
+/**
+ * The retail plan version effective on `asOf` ("YYYY-MM-DD") from a per-NMI list. Mirrors
+ * `getTariff`: picks the newest version whose `effectiveFrom` is on or before `asOf`; without
+ * `asOf`, returns the current (latest) version. If `asOf` predates every version held, falls back
+ * to the OLDEST (we cost on the earliest rates we have rather than nothing). Returns undefined for
+ * an empty list. Versions with no `effectiveFrom` sort as the earliest (baseline).
+ */
+export function pickRetailPlan(
+  plans: ReadonlyArray<RetailPlan>,
+  asOf?: string,
+): RetailPlan | undefined {
+  if (plans.length === 0) return undefined;
+  const newestFirst = [...plans].sort((a, b) =>
+    (b.effectiveFrom ?? "").localeCompare(a.effectiveFrom ?? ""),
+  );
+  if (!asOf) return newestFirst[0];
+  return (
+    newestFirst.find((p) => !p.effectiveFrom || p.effectiveFrom <= asOf) ??
+    newestFirst[newestFirst.length - 1]
+  );
 }
 
 /** Default retail plan, derived from the Origin invoice. Override per NMI with the real contract. */

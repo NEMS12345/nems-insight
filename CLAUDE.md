@@ -479,9 +479,17 @@ Ingestion (Phase 2) and the engine (Phase 4) get the most care and tests.
   fork. Adding the next 1-July rates is a DATA edit (prepend a dated `Tariff` to the array), never
   an engine change. `ENERGEX_7200` carries `effectiveFrom: 2026-07-01`, `ENERGEX_7400`
   `2025-07-01` (its rates derive from the Mar-2026 invoice = 2025-26 FY); each currently has a
-  single version, so behaviour is unchanged until a second is added. **Retail** rates are NOT yet
-  dated (a `RetailPlan` is one current per-NMI record); when retail rates need history, date them
-  the same way — logged follow-up, no fabrication. No real prior-year rates were invented.
+  single version, so behaviour is unchanged until a second is added. **Retail rates are now
+  effective-dated too** (follow-up closed): a `RetailPlan` carries an optional `effectiveFrom`, an
+  NMI holds dated VERSIONS in `retail_plan` (`0017_retail_plan_effective_dated.sql` adds
+  `effective_from` and swaps the per-NMI unique for `(metering_point_id, effective_from)`), and the
+  pure `pickRetailPlan(plans, asOf?)` mirrors `getTariff` semantics (newest version ≤ asOf; latest
+  when no asOf; falls back to the oldest before any version; baseline = no `effectiveFrom`).
+  Reconciliation passes each bill's `periodStart` as `asOf` (both the operator page and the client
+  report), so older bills keep their old retail rates and new bills get the new ones — no fork.
+  Existing single plans get a far-past baseline date so behaviour is unchanged until a second
+  version is saved (the operator form takes an optional "effective from" date). Adding the next
+  retail rate-set is a DATA edit. No real prior-year rates were invented.
 - **Not yet built:** the `@/data/service-role` module — it only arrives with a future
   non-interactive ingestion path (scheduled pulls / email-in), so its ESLint guard is
   intentionally still dormant. Known v1 follow-ups: wiring `src/core/time` in when the first

@@ -373,6 +373,7 @@ export async function createRetailPlanAction(formData: FormData) {
     marketRate: numOr("marketRate", 0),
     supplyPerDay: numOr("supplyPerDay", 0),
     meteringPerDay: numOr("meteringPerDay", 0),
+    effectiveFrom: str(formData, "effectiveFrom") || undefined,
   });
 
   revalidatePath(`/metering-points/${meteringPointId}`);

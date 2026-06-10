@@ -1,5 +1,6 @@
 import { createSupabaseServerClient } from "@/data/supabase/server";
 import type { RetailPlan } from "@/core/tariff";
+import { pickRetailPlan } from "@/core/tariff";
 
 interface RetailPlanRow {
   label: string | null;
@@ -11,10 +12,11 @@ interface RetailPlanRow {
   market_rate: number | string;
   supply_per_day: number | string;
   metering_per_day: number | string;
+  effective_from: string;
 }
 
 const COLS =
-  "label, peak_rate, offpeak_rate, peak_start_hour, peak_end_hour, environmental_rate, market_rate, supply_per_day, metering_per_day";
+  "label, peak_rate, offpeak_rate, peak_start_hour, peak_end_hour, environmental_rate, market_rate, supply_per_day, metering_per_day, effective_from";
 
 function toRetailPlan(row: RetailPlanRow): RetailPlan {
   return {
@@ -29,22 +31,33 @@ function toRetailPlan(row: RetailPlanRow): RetailPlan {
     marketPerKwh: Number(row.market_rate) || 0,
     supplyPerDay: Number(row.supply_per_day) || 0,
     meteringPerDay: Number(row.metering_per_day) || 0,
+    effectiveFrom: row.effective_from,
     estimated: false,
   };
 }
 
-/** The retail plan for an NMI, or null if none has been entered. */
-export async function getRetailPlan(
-  meteringPointId: string,
-): Promise<RetailPlan | null> {
+/** All retail plan versions for an NMI, newest-effective first (empty if none entered). */
+export async function listRetailPlans(meteringPointId: string): Promise<RetailPlan[]> {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
     .from("retail_plan")
     .select(COLS)
     .eq("metering_point_id", meteringPointId)
-    .maybeSingle();
+    .order("effective_from", { ascending: false });
   if (error) throw error;
-  return data ? toRetailPlan(data as RetailPlanRow) : null;
+  return (data ?? []).map((row) => toRetailPlan(row as RetailPlanRow));
+}
+
+/**
+ * The retail plan for an NMI effective on `asOf` ("YYYY-MM-DD"), or null if none entered. Without
+ * `asOf`, the latest version. See `pickRetailPlan` for the selection rule.
+ */
+export async function getRetailPlan(
+  meteringPointId: string,
+  asOf?: string,
+): Promise<RetailPlan | null> {
+  const plans = await listRetailPlans(meteringPointId);
+  return pickRetailPlan(plans, asOf) ?? null;
 }
 
 export interface NewRetailPlan {
@@ -59,9 +72,14 @@ export interface NewRetailPlan {
   marketRate: number;
   supplyPerDay: number;
   meteringPerDay: number;
+  /** "YYYY-MM-DD"; omit to write/replace the baseline version. */
+  effectiveFrom?: string;
 }
 
-/** Insert or replace the retail plan for an NMI (one plan per metering point). */
+/**
+ * Insert or replace a retail plan version for an NMI. One plan per (NMI, effective date): saving
+ * with a new `effectiveFrom` adds a version; saving with an existing one replaces it.
+ */
 export async function upsertRetailPlan(input: NewRetailPlan): Promise<void> {
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase.from("retail_plan").upsert(
@@ -77,8 +95,9 @@ export async function upsertRetailPlan(input: NewRetailPlan): Promise<void> {
       market_rate: input.marketRate,
       supply_per_day: input.supplyPerDay,
       metering_per_day: input.meteringPerDay,
+      ...(input.effectiveFrom ? { effective_from: input.effectiveFrom } : {}),
     },
-    { onConflict: "metering_point_id" },
+    { onConflict: "metering_point_id,effective_from" },
   );
   if (error) throw error;
 }

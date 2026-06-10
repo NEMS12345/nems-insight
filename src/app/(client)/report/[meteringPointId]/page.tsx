@@ -8,7 +8,7 @@ import { getClient } from "@/data/repositories/clients";
 import { listBillsForMeteringPoint } from "@/data/repositories/bills";
 import { getLatestMarketPrice } from "@/data/repositories/marketPrices";
 import { getLatestEmissionsFactor } from "@/data/repositories/emissionsFactors";
-import { getRetailPlan } from "@/data/repositories/retailPlans";
+import { listRetailPlans } from "@/data/repositories/retailPlans";
 import {
   consumptionSummary,
   peakDemand,
@@ -34,6 +34,7 @@ import {
   computeFullCost,
   computeRetailCost,
   retailMarginalPeakRate,
+  pickRetailPlan,
   DEFAULT_RETAIL_PLAN,
   compareTariffs,
   eligibleTariffs,
@@ -99,14 +100,15 @@ export default async function ClientReport({
   const mp = await getMeteringPointDetail(meteringPointId);
   if (!mp) notFound();
 
-  const [site, client, readings, bills, retailPlanRow] = await Promise.all([
+  const [site, client, readings, bills, retailPlans] = await Promise.all([
     getSite(mp.siteId),
     getClient(mp.clientId),
     getReadingsForMeteringPoint(meteringPointId),
     listBillsForMeteringPoint(meteringPointId),
-    getRetailPlan(meteringPointId),
+    listRetailPlans(meteringPointId),
   ]);
-  const retailPlan = retailPlanRow ?? DEFAULT_RETAIL_PLAN;
+  // Latest version for the live model; per-bill reconciliation picks the version effective then.
+  const retailPlan = pickRetailPlan(retailPlans) ?? DEFAULT_RETAIL_PLAN;
 
   const tariff = getTariff(mp.tariffCode ?? "") ?? ENERGEX_7200;
   const reactiveAvailable = hasReactiveData(readings);
@@ -240,7 +242,9 @@ export default async function ClientReport({
     });
     // The connection-unit count varies per bill: this bill's count wins over the NMI default.
     const billLosses = { ...losses, connectionUnits: b.connectionUnits ?? losses.connectionUnits };
-    const cost = computeFullCost(inPeriod, bt, retailPlan, billLosses);
+    // Cost on the retail plan version effective during this bill's period (rates change over time).
+    const billRetailPlan = pickRetailPlan(retailPlans, b.periodStart) ?? DEFAULT_RETAIL_PLAN;
+    const cost = computeFullCost(inPeriod, bt, billRetailPlan, billLosses);
     const coverage = periodCoverage(
       inPeriod.map((r) => r.intervalStart.slice(0, 10)),
       b.periodStart,
@@ -263,7 +267,7 @@ export default async function ClientReport({
   const issueChecks = preIssueChecks({
     lossesEntered,
     connectionVoltageSet: mp.connectionVoltage != null,
-    retailPlanCustom: retailPlanRow != null,
+    retailPlanCustom: retailPlans.length > 0,
     retailDailyChargeTotal: retailPlan.supplyPerDay + retailPlan.meteringPerDay,
     assumedPf: mp.assumedPf,
     hasReactive: reactiveAvailable,

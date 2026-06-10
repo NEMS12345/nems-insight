@@ -4,6 +4,7 @@ import {
   computeRetailCost,
   computeFullCost,
   retailMarginalPeakRate,
+  pickRetailPlan,
   DEFAULT_RETAIL_PLAN,
   ENERGEX_7400,
   type RetailPlan,
@@ -65,5 +66,34 @@ describe("retailMarginalPeakRate", () => {
   it("sums the daytime per-kWh value of a self-consumed kWh", () => {
     expect(retailMarginalPeakRate(PLAN)).toBeCloseTo(0.1 + 0.01 + 0.002);
     expect(DEFAULT_RETAIL_PLAN.estimated).toBe(true);
+  });
+});
+
+describe("pickRetailPlan", () => {
+  const v2024: RetailPlan = { ...PLAN, label: "2024", effectiveFrom: "2024-07-01" };
+  const v2025: RetailPlan = { ...PLAN, label: "2025", effectiveFrom: "2025-07-01" };
+  const baseline: RetailPlan = { ...PLAN, label: "baseline" }; // no effectiveFrom
+
+  it("returns undefined for an empty list", () => {
+    expect(pickRetailPlan([])).toBeUndefined();
+  });
+
+  it("returns the latest version when no asOf is given", () => {
+    expect(pickRetailPlan([v2024, v2025])?.label).toBe("2025");
+  });
+
+  it("picks the version effective on the bill's period (newest <= asOf)", () => {
+    expect(pickRetailPlan([v2024, v2025], "2025-01-15")?.label).toBe("2024");
+    expect(pickRetailPlan([v2024, v2025], "2025-08-15")?.label).toBe("2025");
+    expect(pickRetailPlan([v2024, v2025], "2024-07-01")?.label).toBe("2024");
+  });
+
+  it("falls back to the oldest version when asOf predates every version", () => {
+    expect(pickRetailPlan([v2024, v2025], "2020-01-01")?.label).toBe("2024");
+  });
+
+  it("treats a version with no effectiveFrom as the earliest baseline", () => {
+    expect(pickRetailPlan([baseline, v2025], "2024-01-01")?.label).toBe("baseline");
+    expect(pickRetailPlan([baseline, v2025], "2025-12-01")?.label).toBe("2025");
   });
 });
