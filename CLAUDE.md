@@ -211,6 +211,8 @@ guarantee — see §3 for why (the service role bypasses RLS) and the canonical 
 declarative list of charges (fixed/energy-ToU/monthly-demand) + time-of-use window
 definitions, which the pure engine (`src/core/tariff/engine.ts`) applies to interval data.
 Adding a network/retailer = adding a `Tariff` value, not changing the engine.
+*[v1.1 update: the rates now live in DB rows — see §5b. The engine is unchanged and still
+prices the same pure `Tariff` shape; "tariffs are DATA" survives the storage move.]*
 
 Bills ARE tables (operator-entered facts):
 
@@ -274,6 +276,64 @@ adding DST handling would be out-of-scope work for a QLD-only v1 (be ruthless �
 means there is currently no live "single source of truth" for zone conversion; that rule
 activates with the first DST jurisdiction.
 
+### 5b. [v1.1] The monthly managed-service loop — data model
+
+v1 proved the one-shot analysis. **v1.1 turns it into the recurring monthly loop the managed
+service actually runs**: assign tariff + contract once → ingest each month's data behind a
+quality gate → reconcile → operator reviews and signs off findings → chase confirmed errors
+to recovered dollars → the portfolio page is the month's work queue. Everything is **per
+billing period and re-openable** — it runs again next month.
+
+**[v1.1] Decision change — tariff/contract rates move from code into editable DB records.**
+v1 said "tariffs are DATA-IN-CODE". The managed-service loop needs the operator to add and
+correct rates without a deploy, so rates now live in `network_tariff` / `retail_contract`
+rows (each row carries the full rate set as JSON conforming to the pure `Tariff` /
+`RetailPlan` shapes, plus effective dates and a source note). **The pure core does not
+change**: the data layer loads a row, validates it into the same pure types, and the same
+engine prices it — "tariffs are DATA, not if/else code" still holds; only the storage moved.
+The code registry (`TARIFF_VERSIONS`, invoice-derived Energex 7200/7400) remains as the
+**seed source and the golden-test fixture** — pure-core tests never touch the DB. Rate rows
+are **superseded, never edited in place** once used by a reconciliation (add a new dated
+version instead), so historical reconciliations stay reproducible.
+
+**[v1.1] tables** (all client-owned tables carry `client_id NOT NULL` + composite FKs per §3;
+`network_tariff` is org-level reference data, org-scoped not client-scoped):
+
+| Table | Holds | Key fields |
+|---|---|---|
+| `network_tariff` | One dated DNSP rate-set version (org reference data) | `org_id`, code, name, dnsp, `effective_from`, `rates` (jsonb → pure `Tariff`), source note |
+| `retail_contract` | One dated retail contract rate-set for a client | `client_id`, retailer, label, `effective_from`, `rates` (jsonb → pure `RetailPlan`), source/PDF ref |
+| `tariff_assignment` | Which network tariff + retail contract price an NMI, from when | `metering_point_id`, `client_id`, `network_tariff_id`, `retail_contract_id`, `effective_from` |
+| `reconciliation` | One reconciliation run of one bill (re-runnable) | `bill_id`, `client_id`, `metering_point_id`, period, modelled/billed totals, judgement, coverage, `signed_off_by`, `signed_at` |
+| `reconciliation_finding` | One per-component variance from a run | `reconciliation_id`, `client_id`, component, modelled/billed/variance, `reason_code`, `status` (`open → confirmed_error \| queried \| dismissed \| within_tolerance`), operator note, client-facing recommendation |
+| `recovery` | The chase on a confirmed error | `finding_id`, `client_id`, `state` (`to_raise → query_lodged → responded → recovered`), `amount_identified`, `amount_recovered`, retailer ref, dates |
+
+`bill` / `bill_line_item` already exist (v1) and are unchanged; a `reconciliation` row now
+records each run against a bill instead of the run being ephemeral page state.
+`import_batch` gains `quality_summary` (jsonb: %A/S/F/E/N + gap count, emitted by the
+validator) and `review_state` (`pending_review | accepted | needs_redata`). **The gate:**
+readings from a batch that is not `accepted` must not feed cost or reconciliation
+(`interval_reading.import_batch_id` makes this enforceable); estimated intervals are never
+treated as actual. Existing pre-v1.1 batches are backfilled to `accepted` (the operator
+already vetted them by using them).
+
+**[v1.1] Modelling precondition:** a metering point **cannot be modelled until it has a
+`tariff_assignment` with both a network tariff and a retail contract** — surfaced as a
+blocking state in the UI, never a silent fallback. (Transition: existing NMIs get an
+assignment auto-created from their `tariff_code` + `retail_plan` rows by the migration, so
+nothing built in v1 breaks.) `retail_plan` is superseded by `retail_contract` +
+`tariff_assignment`; its rows are migrated across and the table dropped.
+
+**[v1.1] Workflow lives outside the core.** Review states, sign-off, recovery pipeline are
+DB + `app/` concerns. The pure core only computes: `(modelled, billed) → findings with
+reason codes` in `src/core/reconciliation` (extended, not duplicated). The client report
+renders **only signed-off content** — export is gated on `signed_at`.
+
+**[v1.1] Seed:** one worked example — Acme Foods → Rocklea DC → NMI on **Energex 7400**
+(the invoice-validated tariff; the build prompt's "8100" is not modelled and no rates are
+invented — adding 8100 later is a data row, not code), a retail contract, a June bill, and
+a reconciliation with one confirmed demand-charge discrepancy.
+
 ---
 
 ## 6. v1 scope (be ruthless — cut, don't add)
@@ -321,6 +381,24 @@ activates with the first DST jurisdiction.
    from the browser.
 8. **Two front doors, one core** — operator console + read-only client view via RLS roles.
 
+### [v1.1] IN — the monthly loop (extends v1; see §5b for the data model)
+1. **Setup wizard** (`app/(operator)/setup/`) — client → site → NMI → assign network tariff +
+   retail contract via `tariff_assignment` with effective dates. No assignment → NMI is in a
+   blocking "cannot model" state, shown, not silent.
+2. **Ingestion quality gate** — validator emits `quality_summary` onto `import_batch`;
+   operator **accepts** or marks **needs re-data**; non-accepted batches feed nothing.
+3. **Findings engine (pure)** — `(modelled, billed) → Finding[]` with per-line variance +
+   reason code, in `src/core/reconciliation`. Unit-tested hard: matching lines, tolerance,
+   demand-charge overcharge, missing/extra lines.
+4. **Review & sign-off** (`app/(operator)/review/`) — triage each finding
+   (`confirmed_error | queried | dismissed | within_tolerance`), operator note + client-facing
+   recommendation, then sign off. **Client report renders only signed-off content.**
+5. **Portfolio work queue** — the landing page becomes the month's close calendar: per client,
+   new data to process, unreconciled bills, open recovery queries, stale data. Drill-down stays.
+6. **Recover & track** (`app/(operator)/recovery/`) — per confirmed error:
+   `to_raise → query_lodged → responded → recovered`, amounts, dates, retailer ref; portfolio
+   "$ recovered" metric. This closes the value loop.
+
 ### NOT in v1 (deferred / roadmap)
 - Automated PDF bill parsing (manual structured entry instead).
 - Arbitrary CSV auto-detection (NEM12 only; optionally one fixed NEMS-Insight CSV template).
@@ -331,6 +409,7 @@ activates with the first DST jurisdiction.
   emissions DID ship in the report as method-stated estimates — see item 7; what stays out is
   full carbon accounting / other scopes / offset purchasing / any "carbon-neutral" claim.)
 - Environmental certificate (LGC/STC) cost forensics (entered as flat bill line items).
+- Multi-month trend reports (v1.1 is per billing period; trends are roadmap).
 
 ### Deferred SELF-SERVE items (called out explicitly)
 - Public signup / onboarding wizard, subscription billing, self-serve client admin,
@@ -351,6 +430,18 @@ activates with the first DST jurisdiction.
 | 6. Client report | The clean read-only export | Hand a client a report — **✓ DONE (v1 MVP)** |
 
 Ingestion (Phase 2) and the engine (Phase 4) get the most care and tests.
+
+**[v1.1] build order** (each step ends at something clickable; findings engine gets the tests):
+
+| Step | Build | "Done" |
+|---|---|---|
+| 1. Schema | §5b tables + RLS, types, repositories, worked-example seed | Migrations apply; seed queryable |
+| 2. Setup wizard | Assign tariff + contract per NMI; blocking unmodelled state | Assign an NMI end to end |
+| 3. Quality gate | `quality_summary` + accept / needs re-data on batches | A non-accepted batch feeds nothing |
+| 4. Findings engine | Pure `(modelled, billed) → Finding[]` + reason codes, unit-tested | Suite green on the money logic |
+| 5. Review & sign-off | Triage findings, note + recommendation, sign off; report gated | Sign off a month; export unlocks |
+| 6. Work queue | Portfolio page = monthly close calendar | See the month's outstanding work |
+| 7. Recover & track | Recovery pipeline + "$ recovered" metric | Chase a confirmed error to recovered |
 
 ---
 
@@ -542,6 +633,8 @@ Ingestion (Phase 2) and the engine (Phase 4) get the most care and tests.
   out). (3) Minor: partial-reactive-data kVA
   understatement (engine treats intervals lacking a Q reading as PF=1 when *some* reactive
   exists); `demandShave` uses kW-as-kVA when reactive is absent (caveated in the UI).
+- **[v1.1] in progress.** The monthly managed-service loop (§5b, §6 [v1.1], §7 build order)
+  is being built in step order; this list gets a per-step entry as each lands.
 
 ### Design note for Phase 3 ↔ Phase 4 (how the contract was honoured)
 The intent: avoid two subtly-different ToU classifiers (analytics vs cost engine) drifting
