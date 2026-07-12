@@ -10,13 +10,28 @@ import {
 } from "@/data/repositories/rollups";
 import { energyLabel } from "@/lib/format";
 import { SubmitButton } from "@/components/SubmitButton";
-import { createMeteringPointAction, importDataAction } from "../../actions";
+import {
+  createMeteringPointAction,
+  importDataAction,
+  reviewImportBatchAction,
+} from "../../actions";
 
 const STATUS_STYLE: Record<string, string> = {
   parsed: "text-good",
   partial: "text-warn",
   failed: "text-bad",
   pending: "text-foreground/50",
+};
+
+const REVIEW_STYLE: Record<string, string> = {
+  accepted: "bg-good/10 text-good",
+  pending_review: "bg-warn/10 text-warn",
+  needs_redata: "bg-bad/10 text-bad",
+};
+const REVIEW_LABEL: Record<string, string> = {
+  accepted: "Accepted",
+  pending_review: "Pending review",
+  needs_redata: "Needs re-data",
 };
 
 export default async function SitePage({
@@ -207,19 +222,31 @@ export default async function SitePage({
       </section>
 
       <section>
-        <h2 className="font-medium">Import history</h2>
+        <h2 className="font-medium">Import history &amp; quality gate</h2>
+        <p className="mt-1 text-xs text-foreground/60">
+          A batch feeds cost modelling and reconciliation only once <strong>accepted</strong>.
+          Review its data quality (share of actual vs estimated reads, gaps), then accept it or
+          mark it needs re-data — quarantined batches feed nothing.
+        </p>
         {batches.length === 0 ? (
           <p className="mt-2 text-sm text-foreground/60">No imports yet.</p>
         ) : (
           <ul className="mt-2 divide-y divide-border rounded border border-border">
             {batches.map((b) => (
               <li key={b.id} className="px-4 py-3 text-sm">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <span className="font-mono text-xs">{b.filename}</span>
-                  <span
-                    className={`text-xs font-medium ${STATUS_STYLE[b.status] ?? ""}`}
-                  >
-                    {b.status}
+                  <span className="flex items-center gap-2">
+                    <span
+                      className={`rounded px-2 py-0.5 text-xs font-medium ${REVIEW_STYLE[b.reviewState] ?? ""}`}
+                    >
+                      {REVIEW_LABEL[b.reviewState] ?? b.reviewState}
+                    </span>
+                    <span
+                      className={`text-xs font-medium ${STATUS_STYLE[b.status] ?? ""}`}
+                    >
+                      {b.status}
+                    </span>
                   </span>
                 </div>
                 <div className="mt-1 text-xs text-foreground/50">
@@ -228,6 +255,47 @@ export default async function SitePage({
                   {b.errorCount > 0 && ` · ${b.errorCount} errors`}
                   {b.warningCount > 0 && ` · ${b.warningCount} warnings`}
                 </div>
+                {b.qualitySummary && (
+                  <div className="mt-1 text-xs text-foreground/60">
+                    Quality: {((1 - b.qualitySummary.nonActualFraction) * 100).toFixed(1)}%
+                    actual
+                    {b.qualitySummary.substituted + b.qualitySummary.finalSubstituted > 0 &&
+                      ` · ${b.qualitySummary.substituted + b.qualitySummary.finalSubstituted} substituted`}
+                    {b.qualitySummary.estimated > 0 &&
+                      ` · ${b.qualitySummary.estimated} estimated`}
+                    {b.qualitySummary.gapCount > 0 &&
+                      ` · ${b.qualitySummary.gapCount} gaps (${b.qualitySummary.missingIntervals} intervals missing)`}
+                    {b.qualitySummary.gapCount === 0 && " · no gaps"}
+                  </div>
+                )}
+                {b.reviewState !== "accepted" && (
+                  <div className="mt-2 flex gap-2">
+                    <form action={reviewImportBatchAction}>
+                      <input type="hidden" name="batchId" value={b.id} />
+                      <input type="hidden" name="siteId" value={siteId} />
+                      <input type="hidden" name="state" value="accepted" />
+                      <SubmitButton
+                        className="rounded bg-accent hover:bg-accent-hover px-2.5 py-1 text-xs text-white"
+                        pendingText="Accepting…"
+                      >
+                        Accept — feed the model
+                      </SubmitButton>
+                    </form>
+                    {b.reviewState !== "needs_redata" && (
+                      <form action={reviewImportBatchAction}>
+                        <input type="hidden" name="batchId" value={b.id} />
+                        <input type="hidden" name="siteId" value={siteId} />
+                        <input type="hidden" name="state" value="needs_redata" />
+                        <SubmitButton
+                          className="rounded border border-border px-2.5 py-1 text-xs text-foreground/70 hover:border-bad/50 hover:text-bad"
+                          pendingText="Marking…"
+                        >
+                          Needs re-data
+                        </SubmitButton>
+                      </form>
+                    )}
+                  </div>
+                )}
               </li>
             ))}
           </ul>
