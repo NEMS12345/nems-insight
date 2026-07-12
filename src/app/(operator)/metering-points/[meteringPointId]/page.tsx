@@ -19,10 +19,8 @@ import {
 import {
   computeFullCost,
   reconcile,
-  getTariff,
-  pickRetailPlan,
+  pickEffective,
   DEFAULT_RETAIL_PLAN,
-  ENERGEX_7200,
 } from "@/core/tariff";
 import {
   modelledComponents,
@@ -30,14 +28,14 @@ import {
   reconcile as reconcileComponents,
 } from "@/core/reconciliation";
 import { listBillsForMeteringPoint } from "@/data/repositories/bills";
-import { listRetailPlans } from "@/data/repositories/retailPlans";
+import { resolvePricing } from "@/data/repositories/assignments";
 import { BarChart } from "@/components/BarChart";
 import { ReconciliationTable } from "@/components/ReconciliationTable";
 import { SubmitButton } from "@/components/SubmitButton";
 import { moneyLabel } from "@/lib/format";
 import {
   createBillAction,
-  createRetailPlanAction,
+  saveRetailContractAction,
   deleteBillAction,
   updateMeteringPointSettingsAction,
 } from "../../actions";
@@ -89,15 +87,13 @@ export default async function MeteringPointPage({
   const mp = await getMeteringPointDetail(meteringPointId);
   if (!mp) notFound();
 
-  const [site, client, readings, bills, retailPlans] = await Promise.all([
+  const [site, client, readings, bills, pricing] = await Promise.all([
     getSite(mp.siteId),
     getClient(mp.clientId),
     getReadingsForMeteringPoint(meteringPointId),
     listBillsForMeteringPoint(meteringPointId),
-    listRetailPlans(meteringPointId),
+    resolvePricing(meteringPointId),
   ]);
-  // Latest version for the live model; per-bill reconciliation picks the version effective then.
-  const retailPlan = pickRetailPlan(retailPlans) ?? DEFAULT_RETAIL_PLAN;
 
   const summary = consumptionSummary(readings);
   const peak = peakDemand(readings);
@@ -106,46 +102,60 @@ export default async function MeteringPointPage({
   const daily = dailyConsumption(readings);
   const profile = loadProfileByTimeOfDay(readings);
 
-  // Model on the tariff this NMI is billed on (falls back to 7200), with its loss factors.
-  const tariff = getTariff(mp.tariffCode ?? "") ?? ENERGEX_7200;
   const losses = {
     mlf: mp.mlf ?? undefined,
     dlf: mp.dlf ?? undefined,
     assumedPf: mp.assumedPf ?? undefined,
     connectionUnits: mp.connectionUnits ?? undefined,
   };
-  const modelled = computeFullCost(readings, tariff, retailPlan, losses);
 
-  // Per-bill reconciliation: cost the readings within each bill's period on its tariff
-  // + retail plan. When the bill was entered as component buckets, reconcile component by
-  // component (the headline); otherwise fall back to the total-level check.
-  const reconciliations = bills.map((b) => {
-    // Cost each bill on the tariff version effective during its period (rates change 1 July).
-    const billTariff = getTariff(b.tariffCode ?? "", b.periodStart) ?? tariff;
-    const inPeriod = readings.filter((r) => {
-      const d = aestDate(r.intervalStart);
-      return d >= b.periodStart && d <= b.periodEnd;
-    });
-    // The connection-unit count varies per bill: this bill's count wins over the NMI default.
-    const billLosses = { ...losses, connectionUnits: b.connectionUnits ?? losses.connectionUnits };
-    // Cost on the retail plan version effective during this bill's period (rates change over time).
-    const billRetailPlan = pickRetailPlan(retailPlans, b.periodStart) ?? DEFAULT_RETAIL_PLAN;
-    const cost = computeFullCost(inPeriod, billTariff, billRetailPlan, billLosses);
-    const estimatedFraction = consumptionSummary(inPeriod).estimatedFraction;
-    const coverage = periodCoverage(
-      inPeriod.map((r) => aestDate(r.intervalStart)),
-      b.periodStart,
-      b.periodEnd,
-    );
-    const components =
-      b.billedComponents.length > 0
-        ? reconcileComponents(modelledComponents(cost), b.billedComponents, {
-            estimatedDataPct: estimatedFraction,
-            coverageFraction: coverage,
-          })
-        : null;
-    return { bill: b, cost, recon: reconcile(cost.total, b.billedTotal), components };
-  });
+  // [v1.1] An NMI cannot be modelled without a tariff assignment (network tariff code +
+  // retail contract group) — blocking state, never a silent fallback (CLAUDE.md §5b).
+  const tariff = pricing.assigned ? pricing.tariff : null;
+  const retailPlan = pricing.assigned ? pricing.retailPlan : null;
+  const modelled =
+    pricing.assigned && tariff && retailPlan
+      ? computeFullCost(readings, tariff, retailPlan, losses)
+      : null;
+
+  // Per-bill reconciliation: cost the readings within each bill's period on the tariff and
+  // contract VERSIONS effective during that period (rates change over time — no fork).
+  const reconciliations = !pricing.assigned
+    ? []
+    : bills.map((b) => {
+        const billTariff = pickEffective(pricing.tariffVersions, b.periodStart)!.rates;
+        const billRetailPlan = pickEffective(pricing.contractVersions, b.periodStart)!.rates;
+        const inPeriod = readings.filter((r) => {
+          const d = aestDate(r.intervalStart);
+          return d >= b.periodStart && d <= b.periodEnd;
+        });
+        // The connection-unit count varies per bill: this bill's count wins over the NMI default.
+        const billLosses = {
+          ...losses,
+          connectionUnits: b.connectionUnits ?? losses.connectionUnits,
+        };
+        const cost = computeFullCost(inPeriod, billTariff, billRetailPlan, billLosses);
+        const estimatedFraction = consumptionSummary(inPeriod).estimatedFraction;
+        const coverage = periodCoverage(
+          inPeriod.map((r) => aestDate(r.intervalStart)),
+          b.periodStart,
+          b.periodEnd,
+        );
+        const components =
+          b.billedComponents.length > 0
+            ? reconcileComponents(modelledComponents(cost), b.billedComponents, {
+                estimatedDataPct: estimatedFraction,
+                coverageFraction: coverage,
+              })
+            : null;
+        return { bill: b, cost, recon: reconcile(cost.total, b.billedTotal), components };
+      });
+
+  // Form defaults: the assigned contract's current rates, else the labelled default.
+  const formDefaults = retailPlan ?? DEFAULT_RETAIL_PLAN;
+  const contractVersionDates = pricing.assigned
+    ? pricing.contractVersions.map((v) => describeEffective(v.effectiveFrom) ?? "baseline")
+    : [];
 
   return (
     <div className="flex flex-col gap-8">
@@ -321,14 +331,32 @@ export default async function MeteringPointPage({
             </div>
           </section>
 
+          {!pricing.assigned && (
+            <section className="rounded border-2 border-bad/40 bg-bad/5 p-4 text-sm">
+              <h2 className="font-semibold text-bad">
+                Cannot model this NMI — tariff &amp; contract not assigned
+              </h2>
+              <p className="mt-1 text-foreground/70">
+                Cost modelling and bill reconciliation need a <strong>network tariff</strong>{" "}
+                and a <strong>retail contract</strong> assigned to this metering point.
+                {pricing.reason === "no-assignment" &&
+                  " Save the retail contract below (with a network tariff code) to assign it, or use Setup."}
+                {pricing.reason === "no-tariff-rows" &&
+                  " Its assigned network tariff code has no rate records — add the tariff's rates first."}
+                {pricing.reason === "no-contract-rows" &&
+                  " Its assigned contract group has no rate versions — save a contract version below."}
+              </p>
+            </section>
+          )}
+
+          {modelled && tariff && retailPlan && (
           <section>
             <h2 className="font-medium">
               Modelled cost — {tariff.name}
             </h2>
             <p className="text-xs text-foreground/50">
               Cost computed from interval data over the {modelled.days} days of data. Network
-              from {tariff.name}; retail from {retailPlan.label}
-              {retailPlan.estimated && " (default — set this NMI's contract below)"}.
+              from {tariff.name}; retail from {retailPlan.label}.
             </p>
             <div className="mt-3 overflow-hidden rounded border border-border">
               <table className="w-full text-sm">
@@ -364,47 +392,75 @@ export default async function MeteringPointPage({
               </table>
             </div>
           </section>
+          )}
 
           <section className="rounded border border-border p-4">
-            <h2 className="font-medium">Retail plan (this NMI)</h2>
+            <h2 className="font-medium">Retail contract (this NMI)</h2>
             <p className="mt-1 text-xs text-foreground/60">
-              Enter this NMI&apos;s retail contract rates (ex-GST). Currently using{" "}
-              <strong>{retailPlan.label}</strong>
-              {describeEffective(retailPlan.effectiveFrom) &&
-                ` (effective ${describeEffective(retailPlan.effectiveFrom)})`}
-              . When rates change, save a new version with a later <em>effective from</em> date —
-              older bills keep their old rates, newer bills get the new ones.
+              Enter this NMI&apos;s retail contract rates (ex-GST).{" "}
+              {retailPlan ? (
+                <>
+                  Currently using <strong>{retailPlan.label}</strong>
+                  {describeEffective(retailPlan.effectiveFrom) &&
+                    ` (effective ${describeEffective(retailPlan.effectiveFrom)})`}
+                  . When rates change, save a new version with a later <em>effective from</em>{" "}
+                  date — older bills keep their old rates, newer bills get the new ones.
+                </>
+              ) : (
+                <>
+                  <strong>No contract assigned yet</strong> — saving one (with a network tariff
+                  code) assigns this NMI and unlocks cost modelling.
+                </>
+              )}
             </p>
-            {retailPlans.length > 1 && (
+            {contractVersionDates.length > 1 && (
               <p className="mt-1 text-xs text-foreground/50">
-                Versions on file:{" "}
-                {retailPlans
-                  .map((p) => describeEffective(p.effectiveFrom) ?? "baseline")
-                  .join(", ")}
-                .
+                Versions on file: {contractVersionDates.join(", ")}.
               </p>
             )}
-            <form action={createRetailPlanAction} className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
+            <form action={saveRetailContractAction} className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
               <input type="hidden" name="meteringPointId" value={mp.id} />
               <input type="hidden" name="clientId" value={mp.clientId} />
-              <label className="col-span-2 flex flex-col gap-1 text-xs text-foreground/60 md:col-span-3">
-                Plan label (e.g. &quot;Origin contract 2025–26&quot;)
+              {!pricing.assigned && (
+                <label className="col-span-2 flex flex-col gap-1 text-xs text-foreground/60 md:col-span-3">
+                  Network tariff code (assigned together with the contract)
+                  <select
+                    name="networkTariffCode"
+                    defaultValue={mp.tariffCode ?? "7200"}
+                    className="rounded border border-border px-3 py-2 text-sm"
+                  >
+                    <option value="7200">Energex 7200 (SAC Large TOU)</option>
+                    <option value="7400">Energex 7400 (11kV TOU Demand)</option>
+                  </select>
+                </label>
+              )}
+              <label className="col-span-2 flex flex-col gap-1 text-xs text-foreground/60">
+                Contract label (e.g. &quot;Origin contract 2025–26&quot;)
                 <input
                   name="label"
                   type="text"
-                  defaultValue={retailPlan.estimated ? "" : retailPlan.label}
+                  defaultValue={formDefaults.estimated ? "" : formDefaults.label}
+                  className="rounded border border-border px-3 py-2 text-sm text-foreground"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-foreground/60">
+                Retailer
+                <input
+                  name="retailer"
+                  type="text"
+                  placeholder="e.g. Origin"
                   className="rounded border border-border px-3 py-2 text-sm text-foreground"
                 />
               </label>
               {[
-                ["peakRate", "Energy peak $/kWh", retailPlan.peakRatePerKwh],
-                ["offpeakRate", "Energy off-peak $/kWh", retailPlan.offpeakRatePerKwh],
-                ["environmentalRate", "Environmental $/kWh", retailPlan.environmentalPerKwh],
-                ["marketRate", "Market/AEMO $/kWh", retailPlan.marketPerKwh],
-                ["supplyPerDay", "Supply $/day", retailPlan.supplyPerDay],
-                ["meteringPerDay", "Metering $/day", retailPlan.meteringPerDay],
-                ["peakStartHour", "Peak start (hour)", retailPlan.peakWindow.ranges[0]?.startMin / 60],
-                ["peakEndHour", "Peak end (hour)", retailPlan.peakWindow.ranges[0]?.endMin / 60],
+                ["peakRate", "Energy peak $/kWh", formDefaults.peakRatePerKwh],
+                ["offpeakRate", "Energy off-peak $/kWh", formDefaults.offpeakRatePerKwh],
+                ["environmentalRate", "Environmental $/kWh", formDefaults.environmentalPerKwh],
+                ["marketRate", "Market/AEMO $/kWh", formDefaults.marketPerKwh],
+                ["supplyPerDay", "Supply $/day", formDefaults.supplyPerDay],
+                ["meteringPerDay", "Metering $/day", formDefaults.meteringPerDay],
+                ["peakStartHour", "Peak start (hour)", formDefaults.peakWindow.ranges[0]?.startMin / 60],
+                ["peakEndHour", "Peak end (hour)", formDefaults.peakWindow.ranges[0]?.endMin / 60],
               ].map(([name, label, def]) => (
                 <label key={name as string} className="flex flex-col gap-1 text-xs text-foreground/60">
                   {label as string}
@@ -422,7 +478,7 @@ export default async function MeteringPointPage({
                 <input
                   name="effectiveFrom"
                   type="date"
-                  defaultValue={retailPlan.effectiveFrom ?? ""}
+                  defaultValue={describeEffective(retailPlan?.effectiveFrom) ?? ""}
                   className="rounded border border-border px-3 py-2 text-sm text-foreground"
                 />
               </label>
@@ -430,11 +486,12 @@ export default async function MeteringPointPage({
                 className="col-span-2 justify-self-start rounded bg-accent hover:bg-accent-hover px-3 py-2 text-sm text-white md:col-span-3"
                 pendingText="Saving…"
               >
-                Save retail plan
+                Save retail contract
               </SubmitButton>
             </form>
           </section>
 
+          {pricing.assigned && tariff && (
           <section>
             <h2 className="font-medium">Bills &amp; reconciliation</h2>
             <p className="text-xs text-foreground/50">
@@ -567,6 +624,7 @@ export default async function MeteringPointPage({
               </SubmitButton>
             </form>
           </section>
+          )}
         </>
       )}
     </div>
