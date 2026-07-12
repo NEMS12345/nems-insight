@@ -490,6 +490,26 @@ Ingestion (Phase 2) and the engine (Phase 4) get the most care and tests.
   Existing single plans get a far-past baseline date so behaviour is unchanged until a second
   version is saved (the operator form takes an optional "effective from" date). Adding the next
   retail rate-set is a DATA edit. No real prior-year rates were invented.
+- **Full-stack click-through VERIFIED (and two real bugs found & fixed).** The whole operator
+  journey was driven end-to-end in a real browser against a local stack running the repo's actual
+  migrations (Postgres 16 + PostgREST + RLS, GoTrue-shaped auth): login → create client → site →
+  NMI (7400, MLF/DLF, connection units) → NEM12 upload (2,976 readings land, charts render, PF
+  0.96) → retail plan baseline + dated second version → component-bucket bill entry → per-component
+  reconciliation → client report. Operator page and client report produce **identical modelled
+  components line-for-line** (verified by scraping both). Bugs fixed: (a) **migration
+  `0018_client_select_self_reference.sql`** — `client_select` used `can_access_client(id)` which
+  re-queries `client` itself; a row inserted by the current statement isn't visible to that
+  subquery, so the app's `.insert().select()` (INSERT … RETURNING) **always failed to create a
+  client** under RLS. The policy now judges the row by its own `org_id`
+  (`is_org_operator(org_id)` + direct `client_access` check) — same semantics for existing rows,
+  and RETURNING works. Child tables are unaffected (their policies join pre-existing parents).
+  (b) **The client report filtered bill-period readings by raw string date** (`slice(0, 10)`) —
+  the DB returns UTC instants, so the boundary sat 10 h off AEST and dropped overnight readings,
+  making the report's reconciliation disagree with the operator page; it now uses `aestDate` like
+  the operator page. Also: **route-level loading skeletons** (`loading.tsx` + `PageSkeleton`) on
+  every heavy route so navigation shows instant feedback (form submits already had spinner
+  buttons); the retail-plan form gained the missing **plan-label input**; baseline plan versions
+  display as "baseline" rather than the far-past sentinel date.
 - **Not yet built:** the `@/data/service-role` module — it only arrives with a future
   non-interactive ingestion path (scheduled pulls / email-in), so its ESLint guard is
   intentionally still dormant. Known v1 follow-ups: wiring `src/core/time` in when the first
