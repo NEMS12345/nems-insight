@@ -83,6 +83,96 @@ export async function upsertAssignment(input: NewAssignment): Promise<void> {
   if (error) throw error;
 }
 
+/**
+ * [v1.1] Everything the setup wizard needs in one shape: every NMI with its site/client
+ * names, current assignment (if any), plus each client's contract groups for the picker.
+ */
+export interface SetupRow {
+  meteringPointId: string;
+  nmi: string;
+  clientId: string;
+  clientName: string;
+  siteId: string;
+  siteName: string;
+  tariffCodeHint: string | null;
+  assignment: TariffAssignment | null;
+}
+
+export interface ContractGroupOption {
+  groupId: string;
+  clientId: string;
+  label: string;
+}
+
+export async function setupOverview(): Promise<{
+  rows: SetupRow[];
+  contractGroups: ContractGroupOption[];
+}> {
+  const supabase = await createSupabaseServerClient();
+  const [mps, sites, clients, assignments, contracts] = await Promise.all([
+    supabase.from("metering_point").select("id, nmi, client_id, site_id, tariff_code"),
+    supabase.from("site").select("id, name"),
+    supabase.from("client").select("id, name"),
+    supabase.from("tariff_assignment").select(COLS),
+    supabase.from("retail_contract").select("group_id, client_id, label, retailer, effective_from"),
+  ]);
+  for (const r of [mps, sites, clients, assignments, contracts]) {
+    if (r.error) throw r.error;
+  }
+
+  const siteName = new Map(
+    ((sites.data ?? []) as { id: string; name: string }[]).map((s) => [s.id, s.name]),
+  );
+  const clientName = new Map(
+    ((clients.data ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name]),
+  );
+  const byMp = new Map<string, TariffAssignment[]>();
+  for (const raw of (assignments.data ?? []) as Row[]) {
+    const a = toAssignment(raw);
+    const arr = byMp.get(a.meteringPointId) ?? [];
+    arr.push(a);
+    byMp.set(a.meteringPointId, arr);
+  }
+
+  const rows: SetupRow[] = (
+    (mps.data ?? []) as {
+      id: string;
+      nmi: string;
+      client_id: string;
+      site_id: string;
+      tariff_code: string | null;
+    }[]
+  ).map((m) => ({
+    meteringPointId: m.id,
+    nmi: m.nmi,
+    clientId: m.client_id,
+    clientName: clientName.get(m.client_id) ?? "—",
+    siteId: m.site_id,
+    siteName: siteName.get(m.site_id) ?? "—",
+    tariffCodeHint: m.tariff_code,
+    assignment: pickEffective(byMp.get(m.id) ?? []) ?? null,
+  }));
+
+  // One picker option per contract group (label from its newest version).
+  const seen = new Map<string, ContractGroupOption>();
+  for (const c of (contracts.data ?? []) as {
+    group_id: string;
+    client_id: string;
+    label: string | null;
+    retailer: string | null;
+    effective_from: string;
+  }[]) {
+    if (!seen.has(c.group_id)) {
+      seen.set(c.group_id, {
+        groupId: c.group_id,
+        clientId: c.client_id,
+        label: [c.retailer, c.label ?? "Contract"].filter(Boolean).join(" — "),
+      });
+    }
+  }
+  return { rows, contractGroups: [...seen.values()] };
+}
+
 /** The pricing pair for a metering point, or the reason it can't be modelled. */
 export type ResolvedPricing =
   | {
