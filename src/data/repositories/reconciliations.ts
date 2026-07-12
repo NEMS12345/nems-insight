@@ -214,6 +214,58 @@ export async function latestRunsForMeteringPoint(
   }));
 }
 
+export interface RunWithContext extends ReconciliationRun {
+  findings: StoredFinding[];
+  nmi: string;
+  clientName: string;
+  retailer: string | null;
+}
+
+/** [v1.1] Latest run per bill across the whole portfolio, labelled for the review queue. */
+export async function listAllLatestRuns(): Promise<RunWithContext[]> {
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("reconciliation")
+    .select(RUN_COLS)
+    .order("computed_at", { ascending: false });
+  if (error) throw error;
+  const runs = (data ?? []).map((r) => toRun(r as RunRow));
+  const latestPerBill = new Map<string, ReconciliationRun>();
+  for (const run of runs) if (!latestPerBill.has(run.billId)) latestPerBill.set(run.billId, run);
+  const current = [...latestPerBill.values()];
+  if (current.length === 0) return [];
+
+  const runIds = current.map((r) => r.id);
+  const mpIds = [...new Set(current.map((r) => r.meteringPointId))];
+  const clientIds = [...new Set(current.map((r) => r.clientId))];
+  const billIds = [...new Set(current.map((r) => r.billId))];
+
+  const [fRes, mpRes, cRes, bRes] = await Promise.all([
+    supabase.from("reconciliation_finding").select(FINDING_COLS).in("reconciliation_id", runIds),
+    supabase.from("metering_point").select("id, nmi").in("id", mpIds),
+    supabase.from("client").select("id, name").in("id", clientIds),
+    supabase.from("bill").select("id, retailer").in("id", billIds),
+  ]);
+  for (const r of [fRes, mpRes, cRes, bRes]) if (r.error) throw r.error;
+
+  const findings = ((fRes.data ?? []) as FindingRow[]).map(toFinding);
+  const nmi = new Map(((mpRes.data ?? []) as { id: string; nmi: string }[]).map((m) => [m.id, m.nmi]));
+  const cname = new Map(((cRes.data ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name]));
+  const retailer = new Map(
+    ((bRes.data ?? []) as { id: string; retailer: string | null }[]).map((b) => [b.id, b.retailer]),
+  );
+
+  return current
+    .map((run) => ({
+      ...run,
+      findings: findings.filter((f) => f.reconciliationId === run.id),
+      nmi: nmi.get(run.meteringPointId) ?? "—",
+      clientName: cname.get(run.clientId) ?? "—",
+      retailer: retailer.get(run.billId) ?? null,
+    }))
+    .sort((a, b) => (a.signedAt ? 1 : 0) - (b.signedAt ? 1 : 0) || b.computedAt.localeCompare(a.computedAt));
+}
+
 /** Triage one finding: set its status, note and client-facing recommendation. */
 export async function triageFinding(input: {
   findingId: string;

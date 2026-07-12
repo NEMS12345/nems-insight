@@ -124,3 +124,70 @@ export async function recoveryTotals(): Promise<{ identified: number; recovered:
     recovered: all.reduce((s, r) => s + (r.amountRecovered ?? 0), 0),
   };
 }
+
+export interface RecoveryWithContext extends Recovery {
+  findingLabel: string;
+  clientName: string;
+  nmi: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+}
+
+/** [v1.1] Every recovery, labelled (finding → run → NMI/client) for the recovery board. */
+export async function listRecoveriesDetailed(): Promise<RecoveryWithContext[]> {
+  const supabase = await createSupabaseServerClient();
+  const recoveries = await listRecoveries();
+  if (recoveries.length === 0) return [];
+
+  const findingIds = [...new Set(recoveries.map((r) => r.findingId))];
+  const clientIds = [...new Set(recoveries.map((r) => r.clientId))];
+
+  const [fRes, cRes] = await Promise.all([
+    supabase
+      .from("reconciliation_finding")
+      .select("id, label, reconciliation_id")
+      .in("id", findingIds),
+    supabase.from("client").select("id, name").in("id", clientIds),
+  ]);
+  if (fRes.error) throw fRes.error;
+  if (cRes.error) throw cRes.error;
+  const findings = (fRes.data ?? []) as { id: string; label: string; reconciliation_id: string }[];
+
+  const runIds = [...new Set(findings.map((f) => f.reconciliation_id))];
+  const { data: runData, error: runErr } = await supabase
+    .from("reconciliation")
+    .select("id, metering_point_id, period_start, period_end")
+    .in("id", runIds);
+  if (runErr) throw runErr;
+  const runs = (runData ?? []) as {
+    id: string;
+    metering_point_id: string;
+    period_start: string;
+    period_end: string;
+  }[];
+
+  const mpIds = [...new Set(runs.map((r) => r.metering_point_id))];
+  const { data: mpData, error: mpErr } = await supabase
+    .from("metering_point")
+    .select("id, nmi")
+    .in("id", mpIds);
+  if (mpErr) throw mpErr;
+
+  const findingById = new Map(findings.map((f) => [f.id, f]));
+  const runById = new Map(runs.map((r) => [r.id, r]));
+  const nmiById = new Map(((mpData ?? []) as { id: string; nmi: string }[]).map((m) => [m.id, m.nmi]));
+  const clientById = new Map(((cRes.data ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name]));
+
+  return recoveries.map((r) => {
+    const f = findingById.get(r.findingId);
+    const run = f ? runById.get(f.reconciliation_id) : undefined;
+    return {
+      ...r,
+      findingLabel: f?.label ?? "Finding",
+      clientName: clientById.get(r.clientId) ?? "—",
+      nmi: run ? (nmiById.get(run.metering_point_id) ?? "—") : "—",
+      periodStart: run?.period_start ?? null,
+      periodEnd: run?.period_end ?? null,
+    };
+  });
+}
