@@ -633,8 +633,35 @@ Ingestion (Phase 2) and the engine (Phase 4) get the most care and tests.
   out). (3) Minor: partial-reactive-data kVA
   understatement (engine treats intervals lacking a Q reading as PF=1 when *some* reactive
   exists); `demandShave` uses kW-as-kVA when reactive is absent (caveated in the UI).
-- **[v1.1] in progress.** The monthly managed-service loop (§5b, §6 [v1.1], §7 build order)
-  is being built in step order; this list gets a per-step entry as each lands.
+- **[v1.1] ALL SEVEN STEPS BUILT (steps 2–7 landed together after step 1).** The monthly
+  managed-service loop is complete end to end and was smoke-tested live against the local
+  stack (worked example renders through review → recovery):
+  (2) **Setup** (`/setup` + nav): every NMI with its assignment state; blocked NMIs listed
+  first with an inline assign form (tariff codes from the DB registry, contract groups from
+  the client's contracts); a client with no contracts is pointed at the NMI page (whose
+  contract form assigns in one step). (3) **Quality gate**: `importDataAction` stores the
+  validator's `quality_summary` (%actual, substituted/estimated counts, gaps) on the batch;
+  the site page shows it with Accept / Needs re-data actions (`reviewImportBatchAction` →
+  `setBatchReviewState`); `getReadingsForMeteringPoint(mpId, gateClientId)` EXCLUDES readings
+  from non-accepted batches (pre-gate rows with no batch id pass) — both the operator MP page
+  and the client report pass the gate arg, so a quarantined batch feeds nothing. (5) **Review
+  & sign-off** (`/review`): "Save for review" on a bill persists a run + findings
+  (`runReconciliationAction` — same maths as the MP page, quality-gated readings,
+  period-effective versions); triage each finding (status + operator note + client-facing
+  recommendation; **confirming an error auto-opens its recovery** with |variance| as the
+  identified amount); `signOffRun` refuses while findings are open; runs are re-openable. The
+  client report's reconciliation section now renders ONLY signed-off stored runs (variance
+  table from stored findings + "Actions we are taking for you" from confirmed findings'
+  recommendations), and `preIssueChecks` gained `unsignedBillCount` → a BLOCK until every
+  component-bucket bill's latest run is signed off. (6) **Work queue** (home page): per-client
+  chips — NMIs unassigned / imports to review / bills to reconcile / recoveries open / data
+  stale (>40 days since last upload) — plus portfolio "identified vs recovered" dollars
+  (`src/data/repositories/workQueue.ts`). (7) **Recovery board** (`/recovery`):
+  to_raise → query_lodged → responded → recovered with date stamps, retailer ref, credited
+  amount, notes; state machine constrains the next step; recovered runs re-openable.
+  Repos: `workQueue.ts` new; `reconciliations.ts` gained `listAllLatestRuns` (labelled),
+  `recoveries.ts` gained `listRecoveriesDetailed`. All pure logic stayed in the core; the
+  new pages are workflow UI over repositories (§5b discipline held).
 
 ### Design note for Phase 3 ↔ Phase 4 (how the contract was honoured)
 The intent: avoid two subtly-different ToU classifiers (analytics vs cost engine) drifting
