@@ -49,6 +49,16 @@ function kw(n: number): string {
   return `${n.toLocaleString("en-AU", { maximumFractionDigits: 1 })} kW`;
 }
 
+/**
+ * Human name for a retail plan version's effective date. Plans saved before versioning (or
+ * with no date) carry the migration's far-past default — show those as the baseline rather
+ * than a meaningless "2000-01-01".
+ */
+function describeEffective(effectiveFrom: string | undefined): string | undefined {
+  if (!effectiveFrom || effectiveFrom <= "2000-01-01") return undefined;
+  return effectiveFrom;
+}
+
 const RECON_STYLE: Record<string, string> = {
   match: "text-good",
   review: "text-warn",
@@ -360,19 +370,32 @@ export default async function MeteringPointPage({
             <p className="mt-1 text-xs text-foreground/60">
               Enter this NMI&apos;s retail contract rates (ex-GST). Currently using{" "}
               <strong>{retailPlan.label}</strong>
-              {retailPlan.effectiveFrom && ` (effective ${retailPlan.effectiveFrom})`}. When rates
-              change, save a new version with a later <em>effective from</em> date — older bills keep
-              their old rates, newer bills get the new ones.
+              {describeEffective(retailPlan.effectiveFrom) &&
+                ` (effective ${describeEffective(retailPlan.effectiveFrom)})`}
+              . When rates change, save a new version with a later <em>effective from</em> date —
+              older bills keep their old rates, newer bills get the new ones.
             </p>
             {retailPlans.length > 1 && (
               <p className="mt-1 text-xs text-foreground/50">
                 Versions on file:{" "}
-                {retailPlans.map((p) => p.effectiveFrom ?? "baseline").join(", ")}.
+                {retailPlans
+                  .map((p) => describeEffective(p.effectiveFrom) ?? "baseline")
+                  .join(", ")}
+                .
               </p>
             )}
             <form action={createRetailPlanAction} className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
               <input type="hidden" name="meteringPointId" value={mp.id} />
               <input type="hidden" name="clientId" value={mp.clientId} />
+              <label className="col-span-2 flex flex-col gap-1 text-xs text-foreground/60 md:col-span-3">
+                Plan label (e.g. &quot;Origin contract 2025–26&quot;)
+                <input
+                  name="label"
+                  type="text"
+                  defaultValue={retailPlan.estimated ? "" : retailPlan.label}
+                  className="rounded border border-border px-3 py-2 text-sm text-foreground"
+                />
+              </label>
               {[
                 ["peakRate", "Energy peak $/kWh", retailPlan.peakRatePerKwh],
                 ["offpeakRate", "Energy off-peak $/kWh", retailPlan.offpeakRatePerKwh],
