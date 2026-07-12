@@ -32,8 +32,10 @@ import {
 } from "@/core/reconciliation";
 import { createMarketPrice } from "@/data/repositories/marketPrices";
 import { createEmissionsFactor } from "@/data/repositories/emissionsFactors";
-import { upsertRetailPlan } from "@/data/repositories/retailPlans";
-import { getTariff } from "@/core/tariff";
+import { upsertRetailContractVersion } from "@/data/repositories/retailContracts";
+import { listAssignments, upsertAssignment } from "@/data/repositories/assignments";
+import { listNetworkTariffVersions } from "@/data/repositories/networkTariffs";
+import { getTariff, pickEffective, type RetailPlan } from "@/core/tariff";
 import { createSupabaseServerClient } from "@/data/supabase/server";
 import type { Client } from "@/core/types";
 
@@ -281,12 +283,17 @@ export async function createBillAction(formData: FormData) {
 
   const tariffCode = str(formData, "tariffCode") || undefined;
   const connectionUnits = Number(str(formData, "connectionUnits"));
+  // Tariff display name from the DB registry (falls back to the code registry for safety).
+  const tariffName = tariffCode
+    ? (pickEffective(await listNetworkTariffVersions(tariffCode), periodStart)?.name ??
+      getTariff(tariffCode)?.name)
+    : undefined;
   await createBill({
     clientId,
     meteringPointId,
     retailer: str(formData, "retailer") || undefined,
     tariffCode,
-    tariffName: tariffCode ? getTariff(tariffCode)?.name : undefined,
+    tariffName,
     periodStart,
     periodEnd,
     billedTotal,
@@ -345,7 +352,13 @@ export async function createEmissionsFactorAction(formData: FormData) {
   revalidatePath("/");
 }
 
-export async function createRetailPlanAction(formData: FormData) {
+/**
+ * [v1.1] Save a retail contract version for an NMI. When the NMI already has an assignment,
+ * the version is added to (or replaces, same date) its contract group; when it has none,
+ * a new contract group is created AND the NMI is assigned (network side from the form's
+ * tariff code) — so entering a contract is what takes an NMI out of the blocking state.
+ */
+export async function saveRetailContractAction(formData: FormData) {
   const ctx = await getOperatorContext();
   if (!ctx) redirect("/login");
 
@@ -361,22 +374,73 @@ export async function createRetailPlanAction(formData: FormData) {
     return Number.isFinite(n) ? n : fallback;
   };
 
-  await upsertRetailPlan({
-    meteringPointId,
-    clientId,
-    label: str(formData, "label") || undefined,
-    peakRate,
-    offpeakRate,
-    peakStartHour: numOr("peakStartHour", 7),
-    peakEndHour: numOr("peakEndHour", 21),
-    environmentalRate: numOr("environmentalRate", 0),
-    marketRate: numOr("marketRate", 0),
+  const label = str(formData, "label") || undefined;
+  const retailer = str(formData, "retailer") || undefined;
+  const effectiveFrom = str(formData, "effectiveFrom") || undefined;
+  const rates: RetailPlan = {
+    label: label ?? "Retail contract",
+    peakRatePerKwh: peakRate,
+    offpeakRatePerKwh: offpeakRate,
+    peakWindow: {
+      dayTypes: ["weekday"],
+      ranges: [
+        { startMin: numOr("peakStartHour", 7) * 60, endMin: numOr("peakEndHour", 21) * 60 },
+      ],
+    },
+    environmentalPerKwh: numOr("environmentalRate", 0),
+    marketPerKwh: numOr("marketRate", 0),
     supplyPerDay: numOr("supplyPerDay", 0),
     meteringPerDay: numOr("meteringPerDay", 0),
-    effectiveFrom: str(formData, "effectiveFrom") || undefined,
+    ...(effectiveFrom ? { effectiveFrom } : {}),
+    estimated: false,
+  };
+
+  const assignments = await listAssignments(meteringPointId);
+  const current = pickEffective(assignments);
+  const groupId = await upsertRetailContractVersion({
+    clientId,
+    groupId: current?.retailContractGroup,
+    retailer,
+    label,
+    effectiveFrom,
+    rates,
   });
+  if (!current) {
+    // First contract for this NMI: assign it (network side from the form's tariff code).
+    const code = str(formData, "networkTariffCode");
+    if (code) {
+      await upsertAssignment({
+        meteringPointId,
+        clientId,
+        networkTariffCode: code,
+        retailContractGroup: groupId,
+      });
+    }
+  }
 
   revalidatePath(`/metering-points/${meteringPointId}`);
+}
+
+/** [v1.1] Assign (or re-date) an NMI's network tariff code + retail contract group. */
+export async function assignTariffAction(formData: FormData) {
+  const ctx = await getOperatorContext();
+  if (!ctx) redirect("/login");
+
+  const meteringPointId = str(formData, "meteringPointId");
+  const clientId = str(formData, "clientId");
+  const networkTariffCode = str(formData, "networkTariffCode");
+  const retailContractGroup = str(formData, "retailContractGroup");
+  if (!meteringPointId || !clientId || !networkTariffCode || !retailContractGroup) return;
+
+  await upsertAssignment({
+    meteringPointId,
+    clientId,
+    networkTariffCode,
+    retailContractGroup,
+    effectiveFrom: str(formData, "effectiveFrom") || undefined,
+  });
+  revalidatePath(`/metering-points/${meteringPointId}`);
+  revalidatePath("/");
 }
 
 export async function signOutAction() {
