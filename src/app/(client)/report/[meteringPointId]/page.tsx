@@ -9,6 +9,7 @@ import { listBillsForMeteringPoint } from "@/data/repositories/bills";
 import { getLatestMarketPrice } from "@/data/repositories/marketPrices";
 import { getLatestEmissionsFactor } from "@/data/repositories/emissionsFactors";
 import { resolvePricing } from "@/data/repositories/assignments";
+import { latestRunsForMeteringPoint } from "@/data/repositories/reconciliations";
 import {
   consumptionSummary,
   peakDemand,
@@ -29,16 +30,13 @@ import {
   ngaFactor,
   ngaScope3Factor,
   NGA_FACTOR_YEAR,
-  aestDate,
 } from "@/core/analytics";
 import {
   computeFullCost,
   computeRetailCost,
   retailMarginalPeakRate,
-  pickEffective,
   compareTariffs,
   eligibleTariffs,
-  reconcile,
   marginalEnergyRatePerKwh,
   benchmarkRetailEnergyBand,
   assessRetail,
@@ -50,14 +48,8 @@ import {
   ENERGEX_7400,
   type LossFactors,
 } from "@/core/tariff";
-import {
-  modelledComponents,
-  periodCoverage,
-  reconcile as reconcileComponents,
-} from "@/core/reconciliation";
 import { sortSavings, totalAnnualSaving, adjustConfidence, preIssueChecks, type SavingsItem } from "@/core/report";
 import { BarChart } from "@/components/BarChart";
-import { ReconciliationTable } from "@/components/ReconciliationTable";
 import { PrintButton } from "@/components/PrintButton";
 import { moneyLabel, energyLabel } from "@/lib/format";
 
@@ -99,12 +91,13 @@ export default async function ClientReport({
   const mp = await getMeteringPointDetail(meteringPointId);
   if (!mp) notFound();
 
-  const [site, client, readings, bills, pricing] = await Promise.all([
+  const [site, client, readings, bills, pricing, storedRuns] = await Promise.all([
     getSite(mp.siteId),
     getClient(mp.clientId),
-    getReadingsForMeteringPoint(meteringPointId),
+    getReadingsForMeteringPoint(meteringPointId, mp.clientId), // [v1.1] quality-gated
     listBillsForMeteringPoint(meteringPointId),
     resolvePricing(meteringPointId),
+    latestRunsForMeteringPoint(meteringPointId),
   ]);
 
   // [v1.1] No tariff assignment → the NMI cannot be modelled and no report can be issued.
@@ -248,37 +241,20 @@ export default async function ClientReport({
   const scope3 = scope3Electricity(annualKwh, ngaScope3Factor(region));
   const solarCo2 = emissionsAvoided(solar.annualGenerationKwh, factor);
 
-  // Reconciliation — component-wise (the headline) when the bill was entered as buckets,
-  // else a total-level check.
-  const reconciliations = bills.map((b) => {
-    // Cost each bill on the tariff version effective during its period (rates change 1 July).
-    const bt = pickEffective(pricing.tariffVersions, b.periodStart)?.rates ?? tariff;
-    const inPeriod = readings.filter((r) => {
-      // Compare in AEST calendar dates — the DB returns UTC instants, so slicing the raw
-      // string would shift the period boundary by 10 hours (the operator page already
-      // filters via aestDate; the two must agree).
-      const d = aestDate(r.intervalStart);
-      return d >= b.periodStart && d <= b.periodEnd;
-    });
-    // The connection-unit count varies per bill: this bill's count wins over the NMI default.
-    const billLosses = { ...losses, connectionUnits: b.connectionUnits ?? losses.connectionUnits };
-    // Cost on the contract version effective during this bill's period (rates change over time).
-    const billRetailPlan = pickEffective(pricing.contractVersions, b.periodStart)?.rates ?? retailPlan;
-    const cost = computeFullCost(inPeriod, bt, billRetailPlan, billLosses);
-    const coverage = periodCoverage(
-      inPeriod.map((r) => aestDate(r.intervalStart)),
-      b.periodStart,
-      b.periodEnd,
-    );
-    const components =
-      b.billedComponents.length > 0
-        ? reconcileComponents(modelledComponents(cost), b.billedComponents, {
-            estimatedDataPct: consumptionSummary(inPeriod).estimatedFraction,
-            coverageFraction: coverage,
-          })
-        : null;
-    return { bill: b, cost, recon: reconcile(cost.total, b.billedTotal), components };
-  });
+  // [v1.1] The report renders ONLY signed-off reconciliation content (stored runs +
+  // operator recommendations); live recomputation stays for the operator pages.
+  const runByBill = new Map(storedRuns.map((r) => [r.billId, r]));
+  const signedRuns = storedRuns.filter((r) => r.signedAt != null);
+  const unsignedBillCount = bills.filter((b) => {
+    if (b.billedComponents.length === 0) return false; // total-only bill — no findings flow
+    const run = runByBill.get(b.id);
+    return !run || run.signedAt == null;
+  }).length;
+  const recommendations = signedRuns.flatMap((r) =>
+    r.findings
+      .filter((f) => f.status === "confirmed_error" && f.recommendation)
+      .map((f) => ({ period: `${r.periodStart}–${r.periodEnd}`, label: f.label, text: f.recommendation! })),
+  );
 
   const periodStart = daily[0]?.date ?? "—";
   const periodEnd = daily[daily.length - 1]?.date ?? "—";
@@ -295,6 +271,7 @@ export default async function ClientReport({
     peakKw: peak.kw,
     connectionUnitChargeUnset:
       tariff.charges.some((c) => c.kind === "connection_unit") && mp.connectionUnits == null,
+    unsignedBillCount,
   });
   const blocks = issueChecks.filter((c) => c.level === "block");
   const flags = issueChecks.filter((c) => c.level === "flag");
@@ -500,31 +477,81 @@ export default async function ClientReport({
           </table>
         </Section>
 
-        {reconciliations.length > 0 && (
+        {signedRuns.length > 0 && (
           <Section title="Bill reconciliation">
+            <p className="mb-3 text-xs text-foreground/50">
+              Reviewed and signed off by your NEMS operator — each line compares the charge on
+              your invoice with the cost modelled from your interval data.
+            </p>
             <div className="flex flex-col gap-5">
-              {reconciliations.map(({ bill, cost, recon, components }) => (
-                <div key={bill.id} className="break-inside-avoid">
+              {signedRuns.map((run) => (
+                <div key={run.id} className="break-inside-avoid">
                   <div className="mb-2 text-sm font-medium">
-                    {bill.periodStart}–{bill.periodEnd}
-                    {bill.retailer ? ` · ${bill.retailer}` : ""}
+                    {run.periodStart}–{run.periodEnd} · billed {moneyLabel(run.billedTotal)} vs
+                    modelled {moneyLabel(run.modelledTotal)}
                   </div>
-                  {components ? (
-                    <ReconciliationTable result={components} />
-                  ) : (
-                    <table className="w-full text-sm">
-                      <tbody className="divide-y divide-black/5">
-                        <tr>
-                          <td className="py-1.5 text-right tabular-nums">billed {moneyLabel(bill.billedTotal)}</td>
-                          <td className="py-1.5 text-right tabular-nums">modelled {moneyLabel(cost.total)}</td>
-                          <td className="py-1.5 text-right font-medium">{recon.status}</td>
+                  <table className="w-full text-sm">
+                    <thead className="text-left text-[11px] uppercase text-foreground/40">
+                      <tr>
+                        <th className="py-1">Component</th>
+                        <th className="py-1 text-right">Modelled</th>
+                        <th className="py-1 text-right">Billed</th>
+                        <th className="py-1 text-right">Variance</th>
+                        <th className="py-1 text-right">Outcome</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-black/5">
+                      {run.findings.map((f) => (
+                        <tr key={f.id}>
+                          <td className="py-1.5">{f.label}</td>
+                          <td className="py-1.5 text-right tabular-nums">
+                            {f.modelled != null ? moneyLabel(f.modelled) : "—"}
+                          </td>
+                          <td className="py-1.5 text-right tabular-nums">
+                            {f.billed != null ? moneyLabel(f.billed) : "—"}
+                          </td>
+                          <td className="py-1.5 text-right tabular-nums">{moneyLabel(f.variance)}</td>
+                          <td
+                            className={`py-1.5 text-right text-xs font-medium ${
+                              f.status === "confirmed_error"
+                                ? "text-bad"
+                                : f.status === "queried"
+                                  ? "text-warn"
+                                  : "text-foreground/60"
+                            }`}
+                          >
+                            {f.status === "confirmed_error"
+                              ? "Billing error — being recovered"
+                              : f.status === "queried"
+                                ? "Queried with retailer"
+                                : f.status === "dismissed"
+                                  ? "Checked — not an error"
+                                  : "Within tolerance"}
+                          </td>
                         </tr>
-                      </tbody>
-                    </table>
-                  )}
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               ))}
             </div>
+            {recommendations.length > 0 && (
+              <div className="mt-4 rounded border border-border p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-foreground/50">
+                  Actions we are taking for you
+                </div>
+                <ul className="mt-1 list-disc pl-5 text-sm text-foreground/80">
+                  {recommendations.map((r, i) => (
+                    <li key={i}>
+                      {r.text}{" "}
+                      <span className="text-xs text-foreground/50">
+                        ({r.label}, {r.period})
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </Section>
         )}
 
