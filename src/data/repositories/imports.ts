@@ -4,6 +4,22 @@ import type { QualityFlag, ReadingUnit } from "@/core/types";
 /** Private Supabase Storage bucket holding original uploaded files (create it once). */
 export const RAW_FILES_BUCKET = "raw-files";
 
+/** [v1.1] Validator output stored on the batch — the quality gate's evidence. */
+export interface BatchQualitySummary {
+  total: number;
+  actual: number;
+  substituted: number;
+  finalSubstituted: number;
+  estimated: number;
+  missing: number;
+  /** Fraction (0..1) of intervals that are NOT actual reads. */
+  nonActualFraction: number;
+  gapCount: number;
+  missingIntervals: number;
+}
+
+export type BatchReviewState = "pending_review" | "accepted" | "needs_redata";
+
 export interface ImportBatchSummary {
   id: string;
   filename: string | null;
@@ -12,6 +28,8 @@ export interface ImportBatchSummary {
   readingCount: number;
   errorCount: number;
   warningCount: number;
+  reviewState: BatchReviewState;
+  qualitySummary: BatchQualitySummary | null;
 }
 
 export interface MeteringPointRef {
@@ -108,6 +126,7 @@ export async function finishImportBatch(params: {
   readingCount: number;
   errors: string[];
   warnings: string[];
+  qualitySummary?: BatchQualitySummary;
 }): Promise<void> {
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase
@@ -119,9 +138,38 @@ export async function finishImportBatch(params: {
       warning_count: params.warnings.length,
       errors: params.errors,
       warnings: params.warnings,
+      ...(params.qualitySummary ? { quality_summary: params.qualitySummary } : {}),
     })
     .eq("id", params.id);
   if (error) throw error;
+}
+
+/**
+ * [v1.1] The quality gate's operator verdict: a batch feeds cost/reconciliation only once
+ * ACCEPTED; "needs_redata" keeps it (and its readings) quarantined until re-supplied.
+ */
+export async function setBatchReviewState(
+  batchId: string,
+  state: BatchReviewState,
+): Promise<void> {
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("import_batch")
+    .update({ review_state: state })
+    .eq("id", batchId);
+  if (error) throw error;
+}
+
+/** Ids of a client's batches that are NOT accepted (the set the reading gate excludes). */
+export async function nonAcceptedBatchIds(clientId: string): Promise<string[]> {
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("import_batch")
+    .select("id")
+    .eq("client_id", clientId)
+    .neq("review_state", "accepted");
+  if (error) throw error;
+  return ((data ?? []) as { id: string }[]).map((r) => r.id);
 }
 
 export interface ReadingInsert {
@@ -167,7 +215,9 @@ export async function listImportBatchesForClient(
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
     .from("import_batch")
-    .select("id, filename, status, uploaded_at, reading_count, error_count, warning_count")
+    .select(
+      "id, filename, status, uploaded_at, reading_count, error_count, warning_count, review_state, quality_summary",
+    )
     .eq("client_id", clientId)
     .order("uploaded_at", { ascending: false });
   if (error) throw error;
@@ -181,6 +231,8 @@ export async function listImportBatchesForClient(
       reading_count: number;
       error_count: number;
       warning_count: number;
+      review_state: BatchReviewState;
+      quality_summary: BatchQualitySummary | null;
     }[]
   ).map((r) => ({
     id: r.id,
@@ -190,6 +242,7 @@ export async function listImportBatchesForClient(
     readingCount: r.reading_count,
     errorCount: r.error_count,
     warningCount: r.warning_count,
+    reviewState: r.review_state,
+    qualitySummary: r.quality_summary,
   }));
 }
-

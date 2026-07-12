@@ -39,6 +39,8 @@ export interface PreIssueContext {
   peakKw: number;
   /** Tariff has a connection-unit charge but the NMI's unit count isn't set (→ modelled $0). */
   connectionUnitChargeUnset: boolean;
+  /** [v1.1] Bills whose latest reconciliation run is missing or not signed off. */
+  unsignedBillCount?: number;
 }
 
 /**
@@ -66,6 +68,11 @@ export function preIssueChecks(ctx: PreIssueContext): IssueCheck[] {
   }
   if (ctx.peakKw <= 0) {
     block("Peak demand is zero or negative — check the interval data.");
+  }
+  if ((ctx.unsignedBillCount ?? 0) > 0) {
+    block(
+      `${ctx.unsignedBillCount} bill${ctx.unsignedBillCount === 1 ? "" : "s"} without a signed-off reconciliation — run and sign off each bill in Review before issuing (the report shows only signed-off content).`,
+    );
   }
   if (!ctx.connectionVoltageSet) {
     flag("Connection voltage not set — tariff comparison limited to the current voltage class.");
