@@ -29,6 +29,7 @@ import {
   ngaFactor,
   ngaScope3Factor,
   NGA_FACTOR_YEAR,
+  aestDate,
 } from "@/core/analytics";
 import {
   computeFullCost,
@@ -237,7 +238,10 @@ export default async function ClientReport({
     // Cost each bill on the tariff version effective during its period (rates change 1 July).
     const bt = getTariff(b.tariffCode ?? "", b.periodStart) ?? tariff;
     const inPeriod = readings.filter((r) => {
-      const d = r.intervalStart.slice(0, 10);
+      // Compare in AEST calendar dates — the DB returns UTC instants, so slicing the raw
+      // string would shift the period boundary by 10 hours (the operator page already
+      // filters via aestDate; the two must agree).
+      const d = aestDate(r.intervalStart);
       return d >= b.periodStart && d <= b.periodEnd;
     });
     // The connection-unit count varies per bill: this bill's count wins over the NMI default.
@@ -246,7 +250,7 @@ export default async function ClientReport({
     const billRetailPlan = pickRetailPlan(retailPlans, b.periodStart) ?? DEFAULT_RETAIL_PLAN;
     const cost = computeFullCost(inPeriod, bt, billRetailPlan, billLosses);
     const coverage = periodCoverage(
-      inPeriod.map((r) => r.intervalStart.slice(0, 10)),
+      inPeriod.map((r) => aestDate(r.intervalStart)),
       b.periodStart,
       b.periodEnd,
     );
