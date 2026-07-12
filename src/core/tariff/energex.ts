@@ -1,4 +1,5 @@
 import type { Tariff, PeriodDefinition } from "@/core/tariff/types";
+import { pickEffective } from "@/core/tariff/effective";
 
 // These are NETWORK-only tariffs. Retail pricing is per-NMI (see retail.ts / RetailPlan)
 // because retail contracts differ per metering point.
@@ -95,12 +96,5 @@ function latestVersion(versions: Tariff[]): Tariff {
 export function getTariff(code: string, asOf?: string): Tariff | undefined {
   const versions = TARIFF_VERSIONS[code];
   if (!versions || versions.length === 0) return undefined;
-  const newestFirst = [...versions].sort(
-    (a, b) => (b.effectiveFrom ?? "").localeCompare(a.effectiveFrom ?? ""),
-  );
-  if (!asOf) return newestFirst[0];
-  return (
-    newestFirst.find((t) => !t.effectiveFrom || t.effectiveFrom <= asOf) ??
-    newestFirst[newestFirst.length - 1]
-  );
+  return pickEffective(versions, asOf);
 }

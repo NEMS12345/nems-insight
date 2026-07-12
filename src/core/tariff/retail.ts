@@ -11,6 +11,7 @@ import type {
 } from "@/core/tariff/types";
 import { inWindow } from "@/core/tariff/periods";
 import { computeCost } from "@/core/tariff/engine";
+import { pickEffective } from "@/core/tariff/effective";
 
 /**
  * A retailer's pricing for ONE NMI. Retail contracts differ per metering point, so this is
@@ -38,25 +39,14 @@ export interface RetailPlan {
 }
 
 /**
- * The retail plan version effective on `asOf` ("YYYY-MM-DD") from a per-NMI list. Mirrors
- * `getTariff`: picks the newest version whose `effectiveFrom` is on or before `asOf`; without
- * `asOf`, returns the current (latest) version. If `asOf` predates every version held, falls back
- * to the OLDEST (we cost on the earliest rates we have rather than nothing). Returns undefined for
- * an empty list. Versions with no `effectiveFrom` sort as the earliest (baseline).
+ * The retail plan version effective on `asOf` ("YYYY-MM-DD") from a version list. Same
+ * semantics as `getTariff` — both delegate to the shared `pickEffective` (effective.ts).
  */
 export function pickRetailPlan(
   plans: ReadonlyArray<RetailPlan>,
   asOf?: string,
 ): RetailPlan | undefined {
-  if (plans.length === 0) return undefined;
-  const newestFirst = [...plans].sort((a, b) =>
-    (b.effectiveFrom ?? "").localeCompare(a.effectiveFrom ?? ""),
-  );
-  if (!asOf) return newestFirst[0];
-  return (
-    newestFirst.find((p) => !p.effectiveFrom || p.effectiveFrom <= asOf) ??
-    newestFirst[newestFirst.length - 1]
-  );
+  return pickEffective(plans, asOf);
 }
 
 /** Default retail plan, derived from the Origin invoice. Override per NMI with the real contract. */
