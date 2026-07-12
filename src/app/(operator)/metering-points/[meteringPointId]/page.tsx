@@ -37,6 +37,7 @@ import {
   createBillAction,
   saveRetailContractAction,
   deleteBillAction,
+  runReconciliationAction,
   updateMeteringPointSettingsAction,
 } from "../../actions";
 
@@ -90,7 +91,7 @@ export default async function MeteringPointPage({
   const [site, client, readings, bills, pricing] = await Promise.all([
     getSite(mp.siteId),
     getClient(mp.clientId),
-    getReadingsForMeteringPoint(meteringPointId),
+    getReadingsForMeteringPoint(meteringPointId, mp.clientId), // [v1.1] quality-gated
     listBillsForMeteringPoint(meteringPointId),
     resolvePricing(meteringPointId),
   ]);
@@ -515,6 +516,18 @@ export default async function MeteringPointPage({
                           <span className={`text-xs font-semibold ${RECON_STYLE[recon.status]}`}>
                             {RECON_LABEL[recon.status]}
                           </span>
+                        )}
+                        {components && (
+                          <form action={runReconciliationAction}>
+                            <input type="hidden" name="billId" value={bill.id} />
+                            <input type="hidden" name="meteringPointId" value={mp.id} />
+                            <SubmitButton
+                              className="rounded bg-accent hover:bg-accent-hover px-2 py-1 text-xs text-white"
+                              pendingText="Saving run…"
+                            >
+                              Save for review →
+                            </SubmitButton>
+                          </form>
                         )}
                         <form action={deleteBillAction}>
                           <input type="hidden" name="billId" value={bill.id} />
