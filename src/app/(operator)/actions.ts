@@ -15,27 +15,54 @@ import {
   storeRawFile,
   createImportBatch,
   finishImportBatch,
+  setBatchReviewState,
   upsertReadings,
   type ReadingInsert,
   type MeteringPointRef,
+  type BatchReviewState,
 } from "@/data/repositories/imports";
+import { detectGaps } from "@/ingestion/validators/gaps";
+import { summariseQuality } from "@/ingestion/validators/quality";
 import { parseNem12 } from "@/ingestion/parsers/nem12";
 import { parseMeterProfile } from "@/ingestion/parsers/meterProfile";
 import { readMeterProfileRows } from "@/ingestion/parsers/xlsxRows";
 import type { ParsedReading, ParseResult } from "@/ingestion/types";
 import { createBill, deleteBill } from "@/data/repositories/bills";
+
+import { createMarketPrice } from "@/data/repositories/marketPrices";
+import { createEmissionsFactor } from "@/data/repositories/emissionsFactors";
+import { upsertRetailContractVersion } from "@/data/repositories/retailContracts";
+import {
+  listAssignments,
+  upsertAssignment,
+  resolvePricing,
+} from "@/data/repositories/assignments";
+import { listNetworkTariffVersions } from "@/data/repositories/networkTariffs";
+import {
+  getMeteringPointDetail,
+  getReadingsForMeteringPoint,
+} from "@/data/repositories/readings";
+import { listBillsForMeteringPoint } from "@/data/repositories/bills";
+import {
+  saveRun,
+  triageFinding,
+  signOffRun,
+  reopenRun,
+  type FindingStatus,
+} from "@/data/repositories/reconciliations";
+import { openRecovery, updateRecovery, type RecoveryState } from "@/data/repositories/recoveries";
 import {
   billedComponents,
   billedBucketsTotal,
   componentKey,
+  modelledComponents,
+  periodCoverage,
+  reconcile as reconcileComponents,
+  deriveFindings,
   type BilledBuckets,
 } from "@/core/reconciliation";
-import { createMarketPrice } from "@/data/repositories/marketPrices";
-import { createEmissionsFactor } from "@/data/repositories/emissionsFactors";
-import { upsertRetailContractVersion } from "@/data/repositories/retailContracts";
-import { listAssignments, upsertAssignment } from "@/data/repositories/assignments";
-import { listNetworkTariffVersions } from "@/data/repositories/networkTariffs";
-import { getTariff, pickEffective, type RetailPlan } from "@/core/tariff";
+import { consumptionSummary, aestDate } from "@/core/analytics";
+import { getTariff, pickEffective, computeFullCost, type RetailPlan } from "@/core/tariff";
 import { createSupabaseServerClient } from "@/data/supabase/server";
 import type { Client } from "@/core/types";
 
@@ -236,6 +263,22 @@ export async function importDataAction(formData: FormData) {
     errors.push(`Failed to save readings: ${(e as Error).message}`);
   }
 
+  // [v1.1] Quality gate evidence: the validator's summary lands on the batch so the
+  // operator can accept it (or demand re-data) with the facts in front of them.
+  const q = summariseQuality(result.readings);
+  const gaps = detectGaps(result.readings);
+  const qualitySummary = {
+    total: q.total,
+    actual: q.byFlag.actual,
+    substituted: q.byFlag.substituted,
+    finalSubstituted: q.byFlag["final-substituted"],
+    estimated: q.byFlag.estimated,
+    missing: q.byFlag.null,
+    nonActualFraction: q.nonActualFraction,
+    gapCount: gaps.length,
+    missingIntervals: gaps.reduce((s, g) => s + g.missingIntervals, 0),
+  };
+
   const status =
     rows.length === 0 ? "failed" : errors.length > 0 ? "partial" : "parsed";
   await finishImportBatch({
@@ -244,9 +287,28 @@ export async function importDataAction(formData: FormData) {
     readingCount: rows.length,
     errors,
     warnings,
+    qualitySummary,
   });
 
   revalidatePath(`/sites/${siteId}`);
+}
+
+/**
+ * [v1.1] The quality-gate verdict: accept a batch (its readings may feed cost and
+ * reconciliation) or mark it needs re-data (it feeds nothing until re-supplied).
+ */
+export async function reviewImportBatchAction(formData: FormData) {
+  const ctx = await getOperatorContext();
+  if (!ctx) redirect("/login");
+
+  const batchId = str(formData, "batchId");
+  const siteId = str(formData, "siteId");
+  const state = str(formData, "state") as BatchReviewState;
+  if (!batchId || !["accepted", "needs_redata", "pending_review"].includes(state)) return;
+
+  await setBatchReviewState(batchId, state);
+  if (siteId) revalidatePath(`/sites/${siteId}`);
+  revalidatePath("/");
 }
 
 export async function createBillAction(formData: FormData) {
@@ -440,6 +502,143 @@ export async function assignTariffAction(formData: FormData) {
     effectiveFrom: str(formData, "effectiveFrom") || undefined,
   });
   revalidatePath(`/metering-points/${meteringPointId}`);
+  revalidatePath("/");
+}
+
+/**
+ * [v1.1] Run (or re-run) the reconciliation for one bill and persist it for review: the
+ * pure core computes (modelled, billed) → findings with reason codes; this action only
+ * gathers inputs and records the run. Uses quality-gated readings and the tariff/contract
+ * versions effective during the bill's period — same maths as the metering-point page.
+ */
+export async function runReconciliationAction(formData: FormData) {
+  const ctx = await getOperatorContext();
+  if (!ctx) redirect("/login");
+
+  const billId = str(formData, "billId");
+  const meteringPointId = str(formData, "meteringPointId");
+  if (!billId || !meteringPointId) return;
+
+  const mp = await getMeteringPointDetail(meteringPointId);
+  if (!mp) return;
+  const [bills, readings, pricing] = await Promise.all([
+    listBillsForMeteringPoint(meteringPointId),
+    getReadingsForMeteringPoint(meteringPointId, mp.clientId),
+    resolvePricing(meteringPointId),
+  ]);
+  const bill = bills.find((b) => b.id === billId);
+  if (!bill || !pricing.assigned) return;
+  if (bill.billedComponents.length === 0) return; // total-only bill — nothing to triage
+
+  const billTariff = pickEffective(pricing.tariffVersions, bill.periodStart)!.rates;
+  const billRetailPlan = pickEffective(pricing.contractVersions, bill.periodStart)!.rates;
+  const inPeriod = readings.filter((r) => {
+    const d = aestDate(r.intervalStart);
+    return d >= bill.periodStart && d <= bill.periodEnd;
+  });
+  const cost = computeFullCost(inPeriod, billTariff, billRetailPlan, {
+    mlf: mp.mlf ?? undefined,
+    dlf: mp.dlf ?? undefined,
+    assumedPf: mp.assumedPf ?? undefined,
+    connectionUnits: bill.connectionUnits ?? mp.connectionUnits ?? undefined,
+  });
+  const estimatedFraction = consumptionSummary(inPeriod).estimatedFraction;
+  const coverage = periodCoverage(
+    inPeriod.map((r) => aestDate(r.intervalStart)),
+    bill.periodStart,
+    bill.periodEnd,
+  );
+  const result = reconcileComponents(modelledComponents(cost), bill.billedComponents, {
+    estimatedDataPct: estimatedFraction,
+    coverageFraction: coverage,
+  });
+
+  await saveRun({
+    clientId: mp.clientId,
+    meteringPointId,
+    billId,
+    periodStart: bill.periodStart,
+    periodEnd: bill.periodEnd,
+    modelledTotal: result.modelledTotalAud,
+    billedTotal: bill.billedTotal,
+    judgement: result.judgement,
+    coverageFraction: coverage,
+    estimatedFraction,
+    findings: deriveFindings(result),
+  });
+
+  revalidatePath("/review");
+  redirect("/review");
+}
+
+/**
+ * [v1.1] Triage one finding. Confirming an error automatically opens its recovery (the
+ * chase to recovered dollars) with the variance as the identified amount.
+ */
+export async function triageFindingAction(formData: FormData) {
+  const ctx = await getOperatorContext();
+  if (!ctx) redirect("/login");
+
+  const findingId = str(formData, "findingId");
+  const clientId = str(formData, "clientId");
+  const status = str(formData, "status") as FindingStatus;
+  const variance = Number(str(formData, "variance"));
+  if (!findingId || !clientId) return;
+  if (!["confirmed_error", "queried", "dismissed", "within_tolerance", "open"].includes(status))
+    return;
+
+  await triageFinding({
+    findingId,
+    status,
+    operatorNote: str(formData, "operatorNote") || undefined,
+    recommendation: str(formData, "recommendation") || undefined,
+  });
+  if (status === "confirmed_error" && Number.isFinite(variance) && variance !== 0) {
+    await openRecovery({ clientId, findingId, amountIdentified: Math.abs(variance) });
+  }
+  revalidatePath("/review");
+  revalidatePath("/recovery");
+}
+
+/** [v1.1] Sign off a run (fails while findings are open); unlocks the client report. */
+export async function signOffRunAction(formData: FormData) {
+  const ctx = await getOperatorContext();
+  if (!ctx) redirect("/login");
+  const runId = str(formData, "runId");
+  if (!runId) return;
+  await signOffRun(runId, ctx.userId);
+  revalidatePath("/review");
+}
+
+/** [v1.1] Re-open a signed-off run — everything is per billing period and re-openable. */
+export async function reopenRunAction(formData: FormData) {
+  const ctx = await getOperatorContext();
+  if (!ctx) redirect("/login");
+  const runId = str(formData, "runId");
+  if (!runId) return;
+  await reopenRun(runId);
+  revalidatePath("/review");
+}
+
+/** [v1.1] Advance a recovery through to_raise → query_lodged → responded → recovered. */
+export async function updateRecoveryAction(formData: FormData) {
+  const ctx = await getOperatorContext();
+  if (!ctx) redirect("/login");
+
+  const recoveryId = str(formData, "recoveryId");
+  const state = str(formData, "state") as RecoveryState;
+  if (!recoveryId) return;
+  if (!["to_raise", "query_lodged", "responded", "recovered"].includes(state)) return;
+
+  const amountRecovered = Number(str(formData, "amountRecovered"));
+  await updateRecovery({
+    recoveryId,
+    state,
+    amountRecovered: Number.isFinite(amountRecovered) && amountRecovered > 0 ? amountRecovered : undefined,
+    retailerRef: str(formData, "retailerRef") || undefined,
+    notes: str(formData, "notes") || undefined,
+  });
+  revalidatePath("/recovery");
   revalidatePath("/");
 }
 

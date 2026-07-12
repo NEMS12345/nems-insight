@@ -19,9 +19,22 @@ export default async function OperatorLayout({
     <div className="min-h-screen bg-bg">
       <div className="solar-flare-bar h-1" />
       <header className="flex items-center justify-between bg-sidebar px-6 py-3 text-white">
-        <Link href="/" className="font-semibold tracking-tight">
-          NEMS Insight
-        </Link>
+        <div className="flex items-center gap-5">
+          <Link href="/" className="font-semibold tracking-tight">
+            NEMS Insight
+          </Link>
+          <nav className="flex items-center gap-3 text-sm text-white/70">
+            <Link href="/setup" className="hover:text-white">
+              Setup
+            </Link>
+            <Link href="/review" className="hover:text-white">
+              Review
+            </Link>
+            <Link href="/recovery" className="hover:text-white">
+              Recovery
+            </Link>
+          </nav>
+        </div>
         <div className="flex items-center gap-4 text-sm text-white/60">
           <span>{ctx.email}</span>
           <form action={signOutAction}>
