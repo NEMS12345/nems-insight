@@ -8,7 +8,7 @@ import { getClient } from "@/data/repositories/clients";
 import { listBillsForMeteringPoint } from "@/data/repositories/bills";
 import { getLatestMarketPrice } from "@/data/repositories/marketPrices";
 import { getLatestEmissionsFactor } from "@/data/repositories/emissionsFactors";
-import { listRetailPlans } from "@/data/repositories/retailPlans";
+import { resolvePricing } from "@/data/repositories/assignments";
 import {
   consumptionSummary,
   peakDemand,
@@ -35,12 +35,10 @@ import {
   computeFullCost,
   computeRetailCost,
   retailMarginalPeakRate,
-  pickRetailPlan,
-  DEFAULT_RETAIL_PLAN,
+  pickEffective,
   compareTariffs,
   eligibleTariffs,
   reconcile,
-  getTariff,
   marginalEnergyRatePerKwh,
   benchmarkRetailEnergyBand,
   assessRetail,
@@ -101,17 +99,35 @@ export default async function ClientReport({
   const mp = await getMeteringPointDetail(meteringPointId);
   if (!mp) notFound();
 
-  const [site, client, readings, bills, retailPlans] = await Promise.all([
+  const [site, client, readings, bills, pricing] = await Promise.all([
     getSite(mp.siteId),
     getClient(mp.clientId),
     getReadingsForMeteringPoint(meteringPointId),
     listBillsForMeteringPoint(meteringPointId),
-    listRetailPlans(meteringPointId),
+    resolvePricing(meteringPointId),
   ]);
-  // Latest version for the live model; per-bill reconciliation picks the version effective then.
-  const retailPlan = pickRetailPlan(retailPlans) ?? DEFAULT_RETAIL_PLAN;
 
-  const tariff = getTariff(mp.tariffCode ?? "") ?? ENERGEX_7200;
+  // [v1.1] No tariff assignment → the NMI cannot be modelled and no report can be issued.
+  if (!pricing.assigned) {
+    return (
+      <main className="mx-auto max-w-3xl p-8 text-foreground">
+        <div className="solar-flare-bar mb-6 h-1.5 rounded" />
+        <div className="text-sm text-foreground/50">Energy review — NEMS Insight · DRAFT (operator only)</div>
+        <h1 className="text-2xl font-bold">{client?.name ?? "Client"}</h1>
+        <div className="mt-6 rounded border-2 border-bad/40 bg-bad/5 px-4 py-3 text-sm">
+          <div className="font-semibold text-bad">
+            Cannot produce this report — tariff &amp; contract not assigned.
+          </div>
+          <p className="mt-1 text-foreground/70">
+            Assign a network tariff and retail contract to NMI{" "}
+            <span className="font-mono">{mp.nmi}</span> in the operator console, then reload.
+          </p>
+        </div>
+      </main>
+    );
+  }
+  const retailPlan = pricing.retailPlan;
+  const tariff = pricing.tariff;
   const reactiveAvailable = hasReactiveData(readings);
   const lossesEntered = mp.mlf != null && mp.dlf != null; // Blocker 2
   const losses: LossFactors = {
@@ -236,7 +252,7 @@ export default async function ClientReport({
   // else a total-level check.
   const reconciliations = bills.map((b) => {
     // Cost each bill on the tariff version effective during its period (rates change 1 July).
-    const bt = getTariff(b.tariffCode ?? "", b.periodStart) ?? tariff;
+    const bt = pickEffective(pricing.tariffVersions, b.periodStart)?.rates ?? tariff;
     const inPeriod = readings.filter((r) => {
       // Compare in AEST calendar dates — the DB returns UTC instants, so slicing the raw
       // string would shift the period boundary by 10 hours (the operator page already
@@ -246,8 +262,8 @@ export default async function ClientReport({
     });
     // The connection-unit count varies per bill: this bill's count wins over the NMI default.
     const billLosses = { ...losses, connectionUnits: b.connectionUnits ?? losses.connectionUnits };
-    // Cost on the retail plan version effective during this bill's period (rates change over time).
-    const billRetailPlan = pickRetailPlan(retailPlans, b.periodStart) ?? DEFAULT_RETAIL_PLAN;
+    // Cost on the contract version effective during this bill's period (rates change over time).
+    const billRetailPlan = pickEffective(pricing.contractVersions, b.periodStart)?.rates ?? retailPlan;
     const cost = computeFullCost(inPeriod, bt, billRetailPlan, billLosses);
     const coverage = periodCoverage(
       inPeriod.map((r) => aestDate(r.intervalStart)),
@@ -271,7 +287,7 @@ export default async function ClientReport({
   const issueChecks = preIssueChecks({
     lossesEntered,
     connectionVoltageSet: mp.connectionVoltage != null,
-    retailPlanCustom: retailPlans.length > 0,
+    retailPlanCustom: pricing.contractVersions.length > 0,
     retailDailyChargeTotal: retailPlan.supplyPerDay + retailPlan.meteringPerDay,
     assumedPf: mp.assumedPf,
     hasReactive: reactiveAvailable,
