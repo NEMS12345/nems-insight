@@ -75,6 +75,8 @@ export type Charge =
       period: TouPeriod; // demand measured within this period's window (unless `window` set)
       unit: "kW" | "kVA";
       rate: number; // $/unit/month, charged on the monthly maximum interval demand in-window
+      /** Demand averaging interval. Defaults to 30 minutes when omitted. */
+      measurementMinutes?: 5 | 15 | 30;
       /** Explicit demand window, when it differs from the energy period windows. */
       window?: PeriodWindow;
     };
