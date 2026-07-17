@@ -62,7 +62,7 @@ interface ReadingRow {
 }
 
 const PAGE = 1000;
-const MAX_ROWS = 200_000; // safety cap (~years of multi-channel interval data)
+const MAX_ROWS = 1_000_000;
 
 /**
  * All interval readings for a metering point, as analytics-ready rows. Paginates because
@@ -76,6 +76,7 @@ const MAX_ROWS = 200_000; // safety cap (~years of multi-channel interval data)
 export async function getReadingsForMeteringPoint(
   meteringPointId: string,
   gateClientId?: string,
+  range?: { fromInclusive: string; toExclusive: string },
 ): Promise<AnalyticsReading[]> {
   const supabase = await createSupabaseServerClient();
 
@@ -87,13 +88,23 @@ export async function getReadingsForMeteringPoint(
 
   const out: AnalyticsReading[] = [];
 
-  for (let from = 0; from < MAX_ROWS; from += PAGE) {
+  for (let from = 0; ; from += PAGE) {
+    if (from >= MAX_ROWS) {
+      throw new Error(
+        `Reading query exceeded ${MAX_ROWS.toLocaleString("en-AU")} rows. Select a shorter analysis period rather than using truncated data.`,
+      );
+    }
     let query = supabase
       .from("interval_reading")
       .select("channel, interval_start, interval_length, value, unit, quality")
       .eq("metering_point_id", meteringPointId)
       .order("interval_start", { ascending: true })
       .range(from, from + PAGE - 1);
+    if (range) {
+      query = query
+        .gte("interval_start", range.fromInclusive)
+        .lt("interval_start", range.toExclusive);
+    }
     if (excluded.length > 0) {
       query = query.or(
         `import_batch_id.is.null,import_batch_id.not.in.(${excluded.join(",")})`,
