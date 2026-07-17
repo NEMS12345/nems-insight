@@ -115,6 +115,20 @@ describe("computeCost", () => {
     expect(c.networkTotal).toBeGreaterThan(0);
     expect(c.retailTotal).toBe(0);
   });
+
+  it("aggregates 5-minute readings into the tariff's 30-minute demand interval", () => {
+    const fiveMinuteRows: AnalyticsReading[] = Array.from({ length: 6 }, (_, index) => ({
+      channel: "E1",
+      intervalStart: at(MON, `17:${String(index * 5).padStart(2, "0")}`),
+      intervalLength: 5,
+      value: index === 0 ? 10 : 0,
+      unit: "kWh",
+      quality: "actual",
+    }));
+    const c = computeCost(fiveMinuteRows, tariff);
+    expect(c.lines.find((l) => l.label === "Peak demand")!.amount).toBeCloseTo(400);
+    // 10 kWh across the 30-minute demand interval = 20 kW × $20, not a 120 kW spike.
+  });
 });
 
 describe("kVA demand and monthly fixed charges", () => {
