@@ -1,5 +1,11 @@
 import { createSupabaseServerClient } from "@/data/supabase/server";
-import { pickEffective, type RetailPlan, type Tariff } from "@/core/tariff";
+import {
+  effectivePeriods,
+  pickEffective,
+  type PricingPeriod,
+  type RetailPlan,
+  type Tariff,
+} from "@/core/tariff";
 import {
   listNetworkTariffVersions,
   type NetworkTariffRecord,
@@ -186,6 +192,99 @@ export type ResolvedPricing =
       retailPlan: RetailPlan;
     }
   | { assigned: false; reason: "no-assignment" | "no-tariff-rows" | "no-contract-rows" };
+
+export type ResolvedPricingTimeline =
+  | {
+      assigned: true;
+      networkPeriods: PricingPeriod<Tariff>[];
+      retailPeriods: PricingPeriod<RetailPlan>[];
+    }
+  | {
+      assigned: false;
+      reason: "no-assignment" | "incomplete-pricing";
+      detail: string;
+    };
+
+function combineAdjacent<T>(periods: PricingPeriod<T>[]): PricingPeriod<T>[] {
+  const combined: PricingPeriod<T>[] = [];
+  for (const period of periods) {
+    const previous = combined[combined.length - 1];
+    if (previous?.rates === period.rates) previous.end = period.end;
+    else combined.push({ ...period });
+  }
+  return combined;
+}
+
+/**
+ * Resolve every network and retail rate-set effective across an inclusive historical
+ * window. Assignment changes are followed too, including a move to another tariff code or
+ * contract group. No future version is ever backfilled into an earlier period.
+ */
+export async function resolvePricingTimeline(
+  meteringPointId: string,
+  periodStart: string,
+  periodEnd: string,
+): Promise<ResolvedPricingTimeline> {
+  const assignments = await listAssignments(meteringPointId);
+  if (assignments.length === 0) {
+    return { assigned: false, reason: "no-assignment", detail: "No tariff assignment exists." };
+  }
+
+  try {
+    const assignmentPeriods = effectivePeriods(assignments, periodStart, periodEnd);
+    const tariffCodes = [...new Set(assignmentPeriods.map((p) => p.value.networkTariffCode))];
+    const contractGroups = [
+      ...new Set(assignmentPeriods.map((p) => p.value.retailContractGroup)),
+    ];
+    const [tariffSets, contractSets] = await Promise.all([
+      Promise.all(
+        tariffCodes.map(async (code) => [code, await listNetworkTariffVersions(code)] as const),
+      ),
+      Promise.all(
+        contractGroups.map(
+          async (group) => [group, await listRetailContractVersions(group)] as const,
+        ),
+      ),
+    ]);
+    const tariffsByCode = new Map(tariffSets);
+    const contractsByGroup = new Map(contractSets);
+    const networkPeriods: PricingPeriod<Tariff>[] = [];
+    const retailPeriods: PricingPeriod<RetailPlan>[] = [];
+
+    for (const assignmentPeriod of assignmentPeriods) {
+      const assignment = assignmentPeriod.value;
+      const tariffVersions = tariffsByCode.get(assignment.networkTariffCode) ?? [];
+      const contractVersions = contractsByGroup.get(assignment.retailContractGroup) ?? [];
+      if (tariffVersions.length === 0 || contractVersions.length === 0) {
+        throw new Error(
+          `Assignment effective ${assignmentPeriod.start} references pricing with no versions.`,
+        );
+      }
+      networkPeriods.push(
+        ...effectivePeriods(tariffVersions, assignmentPeriod.start, assignmentPeriod.end).map(
+          (period) => ({ start: period.start, end: period.end, rates: period.value.rates }),
+        ),
+      );
+      retailPeriods.push(
+        ...effectivePeriods(contractVersions, assignmentPeriod.start, assignmentPeriod.end).map(
+          (period) => ({ start: period.start, end: period.end, rates: period.value.rates }),
+        ),
+      );
+    }
+
+    return {
+      assigned: true,
+      networkPeriods: combineAdjacent(networkPeriods),
+      retailPeriods: combineAdjacent(retailPeriods),
+    };
+  } catch (error) {
+    return {
+      assigned: false,
+      reason: "incomplete-pricing",
+      detail: error instanceof Error ? error.message : "Historical pricing is incomplete.",
+    };
+  }
+}
 
 /**
  * Resolve what prices an NMI on `asOf` (or currently). Loads the assignment effective on
