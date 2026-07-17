@@ -24,3 +24,26 @@ export function pickEffective<T extends EffectiveDated>(
     newestFirst[newestFirst.length - 1]
   );
 }
+
+/** Effective-date changes inside an inclusive billing period. */
+export function effectiveBoundariesWithin<T extends EffectiveDated>(
+  versions: ReadonlyArray<T>,
+  periodStart: string,
+  periodEnd: string,
+): string[] {
+  return [...new Set(
+    versions
+      .map((v) => v.effectiveFrom)
+      .filter((date): date is string => !!date && date > periodStart && date <= periodEnd),
+  )].sort();
+}
+
+/** Billing-safe selection that never backfills a period with a future rate set. */
+export function pickEffectiveStrict<T extends EffectiveDated>(
+  versions: ReadonlyArray<T>,
+  asOf: string,
+): T | undefined {
+  return [...versions]
+    .filter((v) => !v.effectiveFrom || v.effectiveFrom <= asOf)
+    .sort((a, b) => (b.effectiveFrom ?? "").localeCompare(a.effectiveFrom ?? ""))[0];
+}
