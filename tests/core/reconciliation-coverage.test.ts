@@ -2,9 +2,11 @@ import { describe, it, expect } from "vitest";
 import {
   reconcile,
   periodCoverage,
+  periodIntervalCoverage,
   daysInPeriodInclusive,
   type BillComponent,
 } from "@/core/reconciliation";
+import type { AnalyticsReading } from "@/core/analytics";
 
 describe("daysInPeriodInclusive", () => {
   it("counts both endpoints", () => {
@@ -40,6 +42,29 @@ describe("periodCoverage", () => {
 
   it("is capped at 1 and 0 for an empty period", () => {
     expect(periodCoverage(["2026-03-01"], "2026-03-31", "2026-03-01")).toBe(0);
+  });
+});
+
+describe("periodIntervalCoverage", () => {
+  const reading = (hour: number, minute: number): AnalyticsReading => ({
+    channel: "E1",
+    intervalStart: `2026-06-01T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00+10:00`,
+    intervalLength: 30,
+    value: 10,
+    unit: "kWh",
+    quality: "actual",
+  });
+
+  it("does not call a day covered when only one interval is present", () => {
+    expect(periodIntervalCoverage([reading(0, 0)], "2026-06-01", "2026-06-01"))
+      .toBeCloseTo(1 / 48);
+  });
+
+  it("reports complete coverage when every expected interval is present", () => {
+    const rows = Array.from({ length: 48 }, (_, index) =>
+      reading(Math.floor(index / 2), (index % 2) * 30),
+    );
+    expect(periodIntervalCoverage(rows, "2026-06-01", "2026-06-01")).toBe(1);
   });
 });
 
