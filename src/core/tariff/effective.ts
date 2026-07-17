@@ -10,6 +10,12 @@ export interface EffectiveDated {
   effectiveFrom?: string; // "YYYY-MM-DD"
 }
 
+export interface EffectivePeriod<T> {
+  start: string;
+  end: string;
+  value: T;
+}
+
 export function pickEffective<T extends EffectiveDated>(
   versions: ReadonlyArray<T>,
   asOf?: string,
@@ -46,4 +52,35 @@ export function pickEffectiveStrict<T extends EffectiveDated>(
   return [...versions]
     .filter((v) => !v.effectiveFrom || v.effectiveFrom <= asOf)
     .sort((a, b) => (b.effectiveFrom ?? "").localeCompare(a.effectiveFrom ?? ""))[0];
+}
+
+function previousDate(date: string): string {
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() - 1);
+  return value.toISOString().slice(0, 10);
+}
+
+/**
+ * Split an inclusive date range into contiguous periods using the version that was
+ * actually effective on each date. Unlike `pickEffective`, this never backfills with a
+ * future version: incomplete pricing history is a blocking data-quality error.
+ */
+export function effectivePeriods<T extends EffectiveDated>(
+  versions: ReadonlyArray<T>,
+  periodStart: string,
+  periodEnd: string,
+): EffectivePeriod<T>[] {
+  if (periodEnd < periodStart) throw new Error("Pricing period end precedes its start.");
+
+  const boundaries = [
+    periodStart,
+    ...effectiveBoundariesWithin(versions, periodStart, periodEnd),
+  ];
+
+  return boundaries.map((start, index) => {
+    const value = pickEffectiveStrict(versions, start);
+    if (!value) throw new Error(`No pricing version was effective on ${start}.`);
+    const next = boundaries[index + 1];
+    return { start, end: next ? previousDate(next) : periodEnd, value };
+  });
 }

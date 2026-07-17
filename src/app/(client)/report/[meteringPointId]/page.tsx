@@ -8,7 +8,10 @@ import { getClient } from "@/data/repositories/clients";
 import { listBillsForMeteringPoint } from "@/data/repositories/bills";
 import { getLatestMarketPrice } from "@/data/repositories/marketPrices";
 import { getLatestEmissionsFactor } from "@/data/repositories/emissionsFactors";
-import { resolvePricing } from "@/data/repositories/assignments";
+import {
+  resolvePricing,
+  resolvePricingTimeline,
+} from "@/data/repositories/assignments";
 import { latestRunsForMeteringPoint } from "@/data/repositories/reconciliations";
 import {
   consumptionSummary,
@@ -32,7 +35,7 @@ import {
   NGA_FACTOR_YEAR,
 } from "@/core/analytics";
 import {
-  computeFullCost,
+  computeVersionedFullCost,
   computeRetailCost,
   retailMarginalPeakRate,
   compareTariffs,
@@ -143,10 +146,44 @@ export default async function ClientReport({
   const daily = dailyConsumption(readings);
   const ops = analyseOperations(readings);
   const topPeaks = topDemandIntervals(readings, 5);
-  const modelled = computeFullCost(readings, tariff, retailPlan, losses);
-
   // Data window & seasonality — annualised figures are caveated when the window is partial.
   const win = analyseDataWindow(readings);
+  if (win.days === 0) {
+    return (
+      <main className="mx-auto max-w-3xl p-8 text-foreground">
+        <div className="solar-flare-bar mb-6 h-1.5 rounded" />
+        <h1 className="text-2xl font-bold">{client?.name ?? "Client"}</h1>
+        <div className="mt-6 rounded border-2 border-bad/40 bg-bad/5 px-4 py-3 text-sm">
+          <div className="font-semibold text-bad">Cannot produce this report — no interval data.</div>
+        </div>
+      </main>
+    );
+  }
+  const historicalPricing = await resolvePricingTimeline(
+    meteringPointId,
+    win.firstDate,
+    win.lastDate,
+  );
+  if (!historicalPricing.assigned) {
+    return (
+      <main className="mx-auto max-w-3xl p-8 text-foreground">
+        <div className="solar-flare-bar mb-6 h-1.5 rounded" />
+        <h1 className="text-2xl font-bold">{client?.name ?? "Client"}</h1>
+        <div className="mt-6 rounded border-2 border-bad/40 bg-bad/5 px-4 py-3 text-sm">
+          <div className="font-semibold text-bad">
+            Cannot produce this report — historical pricing is incomplete.
+          </div>
+          <p className="mt-1 text-foreground/70">{historicalPricing.detail}</p>
+        </div>
+      </main>
+    );
+  }
+  const modelled = computeVersionedFullCost(
+    readings,
+    historicalPricing.networkPeriods,
+    historicalPricing.retailPeriods,
+    losses,
+  );
   const annualF = win.annualisationFactor;
   const annualKwh = summary.importKwh * annualF;
   const conf = (base: "high" | "medium" | "low") =>
@@ -557,7 +594,8 @@ export default async function ClientReport({
 
         <Section title="Network tariff check">
           <p className="text-sm text-foreground/80">
-            Modelled on <strong>{tariff.name}</strong>.
+            Historical costs use the network and retail versions effective on each date.
+            Current tariff: <strong>{tariff.name}</strong>.
             {switchWorthwhile
               ? <> On this load, <strong>{cheapest.tariff.name}</strong> would cost about <strong>{moneyLabel(tariffSavingAnnual)}/yr less</strong> — review subject to connection/voltage eligibility and DNSP approval.</>
               : <> It is the lowest-cost of the tariffs assessed for this load.</>}
@@ -742,7 +780,7 @@ export default async function ClientReport({
 
         <Section title="Basis & assumptions">
           <ul className="list-disc pl-5 text-xs text-foreground/60">
-            <li>Costs modelled from interval meter data on {tariff.name} (network published; retail per the client&apos;s Origin invoice), ex-GST. Annualised from {modelled.days} days where shown as /yr.</li>
+            <li>Historical costs use the network tariff and retail-contract version effective on each date, ex-GST. Forward-looking opportunities use the current {tariff.name} tariff. Annualised from {modelled.days} days where shown as /yr.</li>
             <li>
               Loss factors:{" "}
               {lossesEntered
