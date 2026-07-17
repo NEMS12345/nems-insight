@@ -1,0 +1,66 @@
+# Supabase CLI local-dev config (trimmed from `supabase init` output to the settings we use).
+# Reference: https://supabase.com/docs/guides/local-development/cli/config
+project_id = "nems-insight"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+health_timeout = "2m"
+major_version = 17
+
+[db.migrations]
+enabled = true
+
+[db.seed]
+# Seeds after migrations on `supabase db reset` / first `supabase start`.
+enabled = true
+sql_paths = ["./seed/seed.sql"]
+
+[studio]
+enabled = true
+port = 54323
+api_url = "http://127.0.0.1"
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:3000"
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+# Operators are created by the founder (no public sign-up in the product itself);
+# local email confirmations stay off so a dev login works immediately.
+enable_signup = true
+minimum_password_length = 6
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = false
+
+# Local email testing UI (no real email is sent).
+[local_smtp]
+enabled = true
+port = 54324
+
+# Not used by NEMS Insight v1 — keep the local stack light.
+[realtime]
+enabled = false
+
+[edge_runtime]
+enabled = false
+
+[analytics]
+enabled = false
+port = 54327
+backend = "postgres"

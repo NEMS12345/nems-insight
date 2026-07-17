@@ -47,6 +47,14 @@ export interface Site {
   address?: string;
   state?: string; // AU state/territory, e.g. "QLD"
   network?: string; // DNSP, e.g. "Energex"
+  /**
+   * IANA timezone of the premises, e.g. "Australia/Brisbane" or "Australia/Sydney".
+   * Time-of-use windows are evaluated in this LOCAL clock time so ToU bucketing stays
+   * correct across daylight-saving transitions. See src/core/time and CLAUDE.md §5.
+   */
+  timezone?: string;
+  /** Optional gross floor area (m²) for energy-intensity reporting. */
+  floorAreaM2?: number;
 }
 
 /**
@@ -57,6 +65,14 @@ export interface MeteringPoint {
   id: string;
   siteId: string;
   nmi: string;
+  /** Meter serial, where the source identifies individual meters under an NMI. */
+  meterSerial?: string;
+  /** Network tariff code this metering point is billed on, e.g. "7200" / "7400". */
+  tariffCode?: string;
+  /** Marginal (transmission) loss factor for this NMI. */
+  mlf?: number;
+  /** Distribution loss factor for this NMI. */
+  dlf?: number;
   meterType: "nmi-parent";
 }
 

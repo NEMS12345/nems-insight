@@ -59,6 +59,82 @@ npm run dev
 
 Open http://localhost:3000.
 
+### Database setup (Phase 1)
+
+The schema lives in `supabase/migrations/` and is the source of truth.
+
+1. In your Supabase project, run the SQL in `supabase/migrations/0001_initial_schema.sql`
+   (SQL editor, or `supabase db push` if you use the Supabase CLI).
+2. Create your operator login: **Authentication → Users → Add user** (email + password).
+   Use the same email referenced in `supabase/seed/seed.sql` (default `info@nems.au`).
+3. Run `supabase/seed/seed.sql` to link that user to an organisation as an operator and
+   create a sample client/site/NMI.
+4. `npm run dev`, sign in at `/login`, and you can create **client → site → NMI**.
+
+### Ingestion setup (Phase 2)
+
+1. Apply `supabase/migrations/0002_ingestion.sql` (interval data + import audit + raw files).
+2. Create a **private** Storage bucket named `raw-files` (Storage → New bucket, uncheck
+   public), then add policies so operators can read/write within their client's folder:
+
+   ```sql
+   insert into storage.buckets (id, name, public)
+     values ('raw-files', 'raw-files', false) on conflict (id) do nothing;
+
+   create policy "operators read raw files" on storage.objects
+     for select to authenticated
+     using (bucket_id = 'raw-files'
+            and can_operate_client((storage.foldername(name))[1]::uuid));
+
+   create policy "operators write raw files" on storage.objects
+     for insert to authenticated
+     with check (bucket_id = 'raw-files'
+                 and can_operate_client((storage.foldername(name))[1]::uuid));
+   ```
+
+3. On a site page you can now **upload interval data**: a **NEM12** file (.csv/.dat) or a
+   **30-minute meter-profile export** (.xlsx, one row per meter per interval). All channels
+   (consumption, export, reactive) are parsed with quality flags, the original is kept in
+   Storage, readings land against the matching NMIs/meters, and every upload is recorded in
+   the import history.
+
+   For sources that report several meters under one NMI, apply
+   `supabase/migrations/0005_meter_serial.sql` and create one metering point per meter
+   (enter the meter serial when adding the NMI). Each meter is its own metering point.
+
+### Portfolio rollups (Phase 5)
+
+Apply `supabase/migrations/0003_rollups.sql`. It adds RLS-respecting views
+(`metering_point_energy`, `site_energy`, `client_energy`) that aggregate consumption up
+the hierarchy, so the portfolio / client / site pages show energy totals and let you drill
+down portfolio → client → site → NMI → analytics.
+
+### Tariff, cost & reconciliation (Phase 4)
+
+Apply `supabase/migrations/0004_bills.sql` (the `bill` / `bill_line_item` tables). On a
+metering point's page you'll then see the **modelled cost** from interval data on the
+Energex 7200 tariff (network rates published; retail rates are estimates in
+`src/core/tariff/energex.ts` — replace with the client's contract), and you can **enter a
+bill** to **reconcile** modelled vs billed, flagged match / review / investigate.
+
+### Client report (Phase 6) & later migrations
+
+Apply migrations `0005`–`0009` (per-NMI meter serial, tariff code, loss factors;
+`market_price`; site `floor_area_m2`). The client report lives at
+`/report/[meteringPointId]`. Two operator inputs feed it:
+- **Market reference price** — enter the day's ASX QLD futures ($/MWh) on the operator
+  Portfolio page. The report's **retail benchmark is a hold point** until this is set.
+- **Floor area** (optional) — set per site to show energy intensity (kWh/m²).
+
+### Useful scripts
+
+```bash
+npm run dev        # start the dev server
+npm run build      # production build
+npm run lint       # eslint (incl. the core-purity boundary rule)
+npm run typecheck  # tsc --noEmit
+```
+
 ## Conventions
 
 - Australian spelling, AUD, AU regulatory context.
