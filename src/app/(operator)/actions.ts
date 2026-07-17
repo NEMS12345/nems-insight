@@ -35,7 +35,7 @@ import { upsertRetailContractVersion } from "@/data/repositories/retailContracts
 import {
   listAssignments,
   upsertAssignment,
-  resolvePricing,
+  resolvePricingTimeline,
 } from "@/data/repositories/assignments";
 import { listNetworkTariffVersions } from "@/data/repositories/networkTariffs";
 import {
@@ -65,9 +65,7 @@ import { consumptionSummary, aestDate } from "@/core/analytics";
 import {
   getTariff,
   pickEffective,
-  pickEffectiveStrict,
-  effectiveBoundariesWithin,
-  computeFullCost,
+  computeVersionedFullCost,
   type RetailPlan,
 } from "@/core/tariff";
 import { createSupabaseServerClient } from "@/data/supabase/server";
@@ -528,10 +526,7 @@ export async function runReconciliationAction(formData: FormData) {
 
   const mp = await getMeteringPointDetail(meteringPointId);
   if (!mp) return;
-  const [bills, assignments] = await Promise.all([
-    listBillsForMeteringPoint(meteringPointId),
-    listAssignments(meteringPointId),
-  ]);
+  const bills = await listBillsForMeteringPoint(meteringPointId);
   const bill = bills.find((b) => b.id === billId);
   if (!bill) return;
   const fromInclusive = new Date(`${bill.periodStart}T00:00:00+10:00`).toISOString();
@@ -543,36 +538,27 @@ export async function runReconciliationAction(formData: FormData) {
       fromInclusive,
       toExclusive,
     }),
-    resolvePricing(meteringPointId, bill.periodStart),
+    resolvePricingTimeline(meteringPointId, bill.periodStart, bill.periodEnd),
   ]);
-  if (!pricing.assigned) return;
+  if (!pricing.assigned) {
+    throw new Error(`Cannot reconcile this bill: ${pricing.detail}`);
+  }
   if (bill.billedComponents.length === 0) return; // total-only bill — nothing to triage
-
-  const boundaries = [
-    ...effectiveBoundariesWithin(assignments, bill.periodStart, bill.periodEnd),
-    ...effectiveBoundariesWithin(pricing.tariffVersions, bill.periodStart, bill.periodEnd),
-    ...effectiveBoundariesWithin(pricing.contractVersions, bill.periodStart, bill.periodEnd),
-  ];
-  if (boundaries.length > 0) {
-    throw new Error(
-      `Cannot reconcile a bill that crosses a pricing change (${[...new Set(boundaries)].sort().join(", ")}). Split the bill at the effective date.`,
-    );
-  }
-  const billTariff = pickEffectiveStrict(pricing.tariffVersions, bill.periodStart)?.rates;
-  const billRetailPlan = pickEffectiveStrict(pricing.contractVersions, bill.periodStart)?.rates;
-  if (!billTariff || !billRetailPlan) {
-    throw new Error("No tariff and retail-contract version was effective at the bill start date.");
-  }
   const inPeriod = readings.filter((r) => {
     const d = aestDate(r.intervalStart);
     return d >= bill.periodStart && d <= bill.periodEnd;
   });
-  const cost = computeFullCost(inPeriod, billTariff, billRetailPlan, {
-    mlf: mp.mlf ?? undefined,
-    dlf: mp.dlf ?? undefined,
-    assumedPf: mp.assumedPf ?? undefined,
-    connectionUnits: bill.connectionUnits ?? mp.connectionUnits ?? undefined,
-  });
+  const cost = computeVersionedFullCost(
+    inPeriod,
+    pricing.networkPeriods,
+    pricing.retailPeriods,
+    {
+      mlf: mp.mlf ?? undefined,
+      dlf: mp.dlf ?? undefined,
+      assumedPf: mp.assumedPf ?? undefined,
+      connectionUnits: bill.connectionUnits ?? mp.connectionUnits ?? undefined,
+    },
+  );
   const estimatedFraction = consumptionSummary(inPeriod).estimatedFraction;
   const coverage = periodIntervalCoverage(
     inPeriod,
