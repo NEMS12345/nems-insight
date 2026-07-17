@@ -4,6 +4,8 @@ import {
   TARIFF_VERSIONS,
   ENERGEX_7200,
   ENERGEX_7400,
+  effectiveBoundariesWithin,
+  pickEffectiveStrict,
   type Tariff,
 } from "@/core/tariff";
 
@@ -53,5 +55,21 @@ describe("getTariff — single undated version", () => {
     // The real Energex codes each have one version today.
     expect(getTariff("7200", "2020-01-01")).toBe(ENERGEX_7200);
     expect(getTariff("7400", "2030-01-01")).toBe(ENERGEX_7400);
+  });
+});
+
+describe("billing-safe effective dating", () => {
+  const versions = [
+    { effectiveFrom: "2025-07-01", value: 1 },
+    { effectiveFrom: "2026-07-01", value: 2 },
+  ];
+
+  it("does not apply the oldest held version before it became effective", () => {
+    expect(pickEffectiveStrict(versions, "2025-06-30")).toBeUndefined();
+  });
+
+  it("finds changes occurring inside a billing period", () => {
+    expect(effectiveBoundariesWithin(versions, "2026-06-15", "2026-07-14"))
+      .toEqual(["2026-07-01"]);
   });
 });
