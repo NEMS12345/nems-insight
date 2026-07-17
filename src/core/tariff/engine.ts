@@ -18,6 +18,14 @@ interface IntervalDemand {
   month: string;
 }
 
+interface DemandBucket {
+  intervalStart: string;
+  kwh: number;
+  kvarh: number;
+  consumptionSlots: Set<string>;
+  reactiveSlots: Set<string>;
+}
+
 function emptyByPeriod(): Record<TouPeriod, number> {
   return { peak: 0, shoulder: 0, offpeak: 0 };
 }
@@ -69,7 +77,10 @@ export function computeCost(
   let hasReactive = false;
 
   // Sum consumption (E) and reactive (Q) energy per interval; export is ignored for cost.
-  const perInterval = new Map<string, { kwh: number; kvarh: number; length: number }>();
+  const perInterval = new Map<
+    string,
+    { kwh: number; kvarh: number; length: number; hasConsumption: boolean; hasReactive: boolean }
+  >();
   for (const r of readings) {
     const kind = channelKind(r.channel);
     if (kind !== "consumption" && kind !== "reactive") continue;
@@ -77,28 +88,79 @@ export function computeCost(
     months.add(aestYearMonth(r.intervalStart));
     const slot =
       perInterval.get(r.intervalStart) ??
-      { kwh: 0, kvarh: 0, length: r.intervalLength };
-    if (kind === "consumption") slot.kwh += r.value;
-    else {
+      {
+        kwh: 0,
+        kvarh: 0,
+        length: r.intervalLength,
+        hasConsumption: false,
+        hasReactive: false,
+      };
+    if (kind === "consumption") {
+      slot.kwh += r.value;
+      slot.hasConsumption = true;
+    } else {
       slot.kvarh += r.value;
+      slot.hasReactive = true;
       hasReactive = true;
     }
     perInterval.set(r.intervalStart, slot);
   }
 
-  const demand: IntervalDemand[] = [];
-  for (const [intervalStart, { kwh, kvarh, length }] of perInterval) {
+  const demandFor = (measurementMinutes: number): IntervalDemand[] => {
+    const bucketMs = measurementMinutes * 60_000;
+    const buckets = new Map<number, DemandBucket>();
+
+    for (const [
+      intervalStart,
+      { kwh, kvarh, hasConsumption, hasReactive: slotHasReactive },
+    ] of perInterval) {
+      const instant = Date.parse(intervalStart);
+      const bucketStart = Math.floor(instant / bucketMs) * bucketMs;
+      const bucket = buckets.get(bucketStart) ?? {
+        intervalStart: new Date(bucketStart).toISOString(),
+        kwh: 0,
+        kvarh: 0,
+        consumptionSlots: new Set<string>(),
+        reactiveSlots: new Set<string>(),
+      };
+      if (hasConsumption) {
+        bucket.kwh += kwh;
+        bucket.consumptionSlots.add(intervalStart);
+      }
+      if (slotHasReactive) {
+        bucket.kvarh += kvarh;
+        bucket.reactiveSlots.add(intervalStart);
+      }
+      buckets.set(bucketStart, bucket);
+    }
+
+    const result: IntervalDemand[] = [];
+    for (const bucket of buckets.values()) {
+      const period = classifyPeriod(bucket.intervalStart, tariff.periods);
+      const kw = intervalPowerKw(bucket.kwh, measurementMinutes);
+      const reactiveComplete =
+        hasReactive &&
+        bucket.consumptionSlots.size > 0 &&
+        [...bucket.consumptionSlots].every((slot) => bucket.reactiveSlots.has(slot));
+      const kva = reactiveComplete
+        ? Math.sqrt(kw * kw + intervalPowerKw(bucket.kvarh, measurementMinutes) ** 2)
+        : assumedPf != null && assumedPf > 0
+          ? kw / assumedPf
+          : kw;
+      result.push({
+        intervalStart: bucket.intervalStart,
+        kw,
+        kva,
+        period,
+        month: aestYearMonth(bucket.intervalStart),
+      });
+    }
+    return result;
+  };
+
+  for (const [intervalStart, { kwh }] of perInterval) {
     const period = classifyPeriod(intervalStart, tariff.periods);
     energyByPeriod[period] += kwh;
-    const kw = intervalPowerKw(kwh, length);
-    // kVA: from reactive when available; else from an explicit assumed PF; else fall back to
-    // kW (understated — the report flags this rather than presenting it as fact).
-    const kva = hasReactive
-      ? Math.sqrt(kw * kw + intervalPowerKw(kvarh, length) ** 2)
-      : assumedPf != null && assumedPf > 0
-        ? kw / assumedPf
-        : kw;
-    demand.push({ intervalStart, kw, kva, period, month: aestYearMonth(intervalStart) });
   }
 
   const dayCount = days.size;
@@ -159,6 +221,7 @@ export function computeCost(
     } else {
       // demand_monthly: sum each calendar month's maximum in-window demand,
       // measured in kVA (apparent power) or kW (real power) per the charge.
+      const demand = demandFor(charge.measurementMinutes ?? 30);
       const monthlyMax = new Map<string, number>();
       for (const d of demand) {
         const inScope = charge.window
