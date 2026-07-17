@@ -5,6 +5,7 @@ import {
   ENERGEX_7200,
   ENERGEX_7400,
   effectiveBoundariesWithin,
+  effectivePeriods,
   pickEffectiveStrict,
   type Tariff,
 } from "@/core/tariff";
@@ -71,5 +72,18 @@ describe("billing-safe effective dating", () => {
   it("finds changes occurring inside a billing period", () => {
     expect(effectiveBoundariesWithin(versions, "2026-06-15", "2026-07-14"))
       .toEqual(["2026-07-01"]);
+  });
+
+  it("splits a range into the versions effective on each date", () => {
+    expect(effectivePeriods(versions, "2026-06-15", "2026-07-14")).toEqual([
+      { start: "2026-06-15", end: "2026-06-30", value: versions[0] },
+      { start: "2026-07-01", end: "2026-07-14", value: versions[1] },
+    ]);
+  });
+
+  it("blocks a range whose opening date predates the pricing history", () => {
+    expect(() => effectivePeriods(versions, "2025-06-01", "2025-06-30")).toThrow(
+      "No pricing version was effective",
+    );
   });
 });
