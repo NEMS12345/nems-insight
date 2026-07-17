@@ -8,9 +8,9 @@
 // manufacturing a false accusation — the one case where the headline feature could mislead a
 // client.
 //
-// Granularity note (v1): a day counts as "covered" if it carries ANY reading. This catches the
-// headline gap (whole days missing). Weighting by intervals-present-per-day (to catch a day
-// with only a handful of intervals) is a future refinement, not built here. Pure TypeScript.
+import type { AnalyticsReading } from "@/core/analytics/types";
+import { channelKind } from "@/core/analytics/types";
+import { aestDate } from "@/core/analytics/time";
 
 function toUtcDays(date: string): number {
   const [y, m, d] = date.split("-").map(Number);
@@ -40,4 +40,33 @@ export function periodCoverage(
     if (d >= periodStart && d <= periodEnd) distinct.add(d);
   }
   return Math.min(distinct.size / total, 1);
+}
+
+/** Interval-level coverage for the primary consumption stream in a billing period. */
+export function periodIntervalCoverage(
+  readings: ReadonlyArray<AnalyticsReading>,
+  periodStart: string,
+  periodEnd: string,
+): number {
+  const byChannel = new Map<string, AnalyticsReading[]>();
+  for (const r of readings) {
+    if (channelKind(r.channel) !== "consumption") continue;
+    const date = aestDate(r.intervalStart);
+    if (date < periodStart || date > periodEnd) continue;
+    const rows = byChannel.get(r.channel) ?? [];
+    rows.push(r);
+    byChannel.set(r.channel, rows);
+  }
+
+  const primary = [...byChannel.values()].sort((a, b) => b.length - a.length)[0];
+  if (!primary?.length) return 0;
+
+  const lengthCounts = new Map<number, number>();
+  for (const r of primary) {
+    lengthCounts.set(r.intervalLength, (lengthCounts.get(r.intervalLength) ?? 0) + 1);
+  }
+  const intervalLength = [...lengthCounts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  const expected = daysInPeriodInclusive(periodStart, periodEnd) * (1440 / intervalLength);
+  if (expected <= 0) return 0;
+  return Math.min(new Set(primary.map((r) => r.intervalStart)).size / expected, 1);
 }
